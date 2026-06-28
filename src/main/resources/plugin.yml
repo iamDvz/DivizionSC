@@ -1,0 +1,26 @@
+name: DivizionSC
+version: ${project.version}
+main: ru.iamdvz.divizionsc.DivizionSC
+api-version: '1.21'
+description: Script-based abilities plugin inspired by MagicSpells
+authors: [iamdvz]
+
+commands:
+  dsc:
+    description: DivizionSC abilities
+    usage: "/<command> <list|info|cast|give|bind|skills|reload> ..."
+    aliases: [divizionsc, ability]
+
+permissions:
+  divizionsc.admin:
+    description: Admin commands (reload, give)
+    default: op
+  divizionsc.cast.*:
+    description: Cast any def (wildcard)
+    default: op
+  divizionsc.def.*:
+    description: Cast defs by permission prefix
+    default: true
+  divizionsc.skills:
+    description: Open skill bar and use hotbar binds
+    default: true

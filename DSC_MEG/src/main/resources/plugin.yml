@@ -1,0 +1,10 @@
+name: DSC_MEG
+version: ${project.version}
+main: ru.iamdvz.dscmeg.DscMeg
+api-version: "1.21"
+load: POSTWORLD
+depend:
+  - DivizionSC
+  - ModelEngine
+libraries:
+  - org.joml:joml:1.10.5

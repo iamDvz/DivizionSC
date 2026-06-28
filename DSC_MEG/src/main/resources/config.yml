@@ -1,0 +1,22 @@
+debug:
+  log-spawn-failures: true
+  validate-animations: true
+
+cleanup:
+  mob-tag: DSC_MEG_MOB
+
+defaults:
+  remove-delay: -1
+  model-scale: 1.0
+  shadow: true
+  glowing: false
+  model-color: ffffff
+  remove-on-host-death: false
+
+limits:
+  max-active-per-world: 200
+  max-follow-distance: 64.0
+  follow-interval-ticks: 2
+  follow-far-interval-ticks: 5
+  follow-far-distance: 32.0
+  notify-on-world-limit: false
