@@ -1,6 +1,7 @@
 package ru.iamdvz.dscmeg.model;
 
 import org.bukkit.entity.ArmorStand;
+import ru.iamdvz.divizionsc.platform.TaskHandle;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,7 +13,7 @@ public final class VfxSession {
     private final ArmorStand stand;
     private final UUID worldUid;
     private final AtomicBoolean cleaned;
-    private final List<Integer> scheduledTaskIds = new ArrayList<>(8);
+    private final List<TaskHandle> scheduledTasks = new ArrayList<>(8);
 
     public VfxSession(ArmorStand stand, AtomicBoolean cleaned) {
         this.stand = stand;
@@ -32,13 +33,13 @@ public final class VfxSession {
         return cleaned;
     }
 
-    public List<Integer> scheduledTaskIds() {
-        return scheduledTaskIds;
+    public List<TaskHandle> scheduledTasks() {
+        return scheduledTasks;
     }
 
-    public void trackTask(int taskId) {
-        if (taskId != -1) {
-            scheduledTaskIds.add(taskId);
+    public void trackTask(TaskHandle handle) {
+        if (handle != null && handle != TaskHandle.CANCELLED) {
+            scheduledTasks.add(handle);
         }
     }
 }

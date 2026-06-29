@@ -11,3 +11,4 @@ plugins {
 
 rootProject.name = "DivizionSC"
 include("DSC_MEG")
+include("DSC_MM")

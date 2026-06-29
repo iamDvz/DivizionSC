@@ -32,6 +32,8 @@ public final class VfxUtils {
         stand.setGravity(false);
         stand.setInvulnerable(true);
         stand.setVisible(false);
+        // VFX-стенды эфемерны: не сохраняем на диск (иначе протёкшие стенды переживают рестарт).
+        stand.setPersistent(false);
         stand.addDisabledSlots(
                 EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.FEET,
                 EquipmentSlot.HAND, EquipmentSlot.LEGS, EquipmentSlot.OFF_HAND);

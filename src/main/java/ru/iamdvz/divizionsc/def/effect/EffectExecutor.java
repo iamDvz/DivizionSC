@@ -23,6 +23,9 @@ public final class EffectExecutor {
 
     public void runEffects(EffectContext ctx, List<EffectDefinition> effects) {
         for (EffectDefinition effect : effects) {
+            if (ctx.vars().isAborted()) {
+                return;
+            }
             runEffect(ctx, effect);
         }
     }

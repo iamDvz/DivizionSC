@@ -15,11 +15,15 @@ import ru.iamdvz.divizionsc.util.ColorUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder {
 
     private static final int PREV_SLOT = 45;
+    private static final int SEARCH_SLOT = 47;
     private static final int INFO_SLOT = 49;
+    private static final int BROWSER_SLOT = 51;
     private static final int NEXT_SLOT = 53;
 
     private final PluginContext context;
@@ -28,14 +32,20 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
     private final SkillBarConfig settings;
     private int page;
     private int activeBindSlot;
+    private String filter;
 
     public SkillBarMenu(PluginContext context, Player player) {
+        this(context, player, "");
+    }
+
+    public SkillBarMenu(PluginContext context, Player player, String filter) {
         this.context = context;
         this.player = player;
         this.settings = context.config().skillBar();
         this.page = 0;
+        this.filter = filter == null ? "" : filter;
         this.activeBindSlot = player.getInventory().getHeldItemSlot();
-        Component title = context.messages().format("skillbar-title", java.util.Map.of("page", "1"));
+        Component title = context.messages().format("skillbar-title", Map.of());
         this.inventory = Bukkit.createInventory(this, settings.guiSize(), title);
         refresh();
     }
@@ -107,6 +117,24 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
         return slot == NEXT_SLOT;
     }
 
+    public boolean isSearchSlot(int slot) {
+        return slot == SEARCH_SLOT;
+    }
+
+    public boolean isBrowserSlot(int slot) {
+        return slot == BROWSER_SLOT;
+    }
+
+    public String filter() {
+        return filter;
+    }
+
+    public void clearFilter() {
+        this.filter = "";
+        this.page = 0;
+        refresh();
+    }
+
     public DefDefinition defAtListSlot(int slot) {
         List<DefDefinition> defs = pageDefs();
         int index = listIndexFor(slot);
@@ -136,9 +164,10 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
     }
 
     private void fillGlass() {
-        ItemStack glass = namedItem(Material.GRAY_STAINED_GLASS_PANE, " ");
+        ItemStack glass = fillerPane(Material.GRAY_STAINED_GLASS_PANE);
         for (int i = settings.listStartSlot() + settings.listPageSize(); i < settings.bindRowStartSlot(); i++) {
-            if (i == PREV_SLOT || i == INFO_SLOT || i == NEXT_SLOT) {
+            if (i == PREV_SLOT || i == INFO_SLOT || i == NEXT_SLOT
+                    || i == SEARCH_SLOT || i == BROWSER_SLOT) {
                 continue;
             }
             inventory.setItem(i, glass);
@@ -152,7 +181,7 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
         for (int i = 0; i < settings.listPageSize(); i++) {
             int slot = start + i;
             if (i >= defs.size()) {
-                inventory.setItem(slot, namedItem(Material.LIGHT_GRAY_STAINED_GLASS_PANE, " "));
+                inventory.setItem(slot, fillerPane(Material.LIGHT_GRAY_STAINED_GLASS_PANE));
                 continue;
             }
             DefDefinition def = defs.get(i);
@@ -160,9 +189,9 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
             ItemMeta meta = icon.getItemMeta();
             if (meta != null) {
                 List<Component> lore = meta.lore() == null ? new ArrayList<>() : new ArrayList<>(meta.lore());
-                lore.add(ColorUtil.component("&7"));
-                lore.add(ColorUtil.component("&eЛКМ &7→ слот &f" + slotNumber));
-                lore.add(ColorUtil.component("&eShift+ЛКМ &7→ первый свободный"));
+                lore.add(Component.empty());
+                lore.add(msg("skillbar-lmb-slot", Map.of("slot", String.valueOf(slotNumber))));
+                lore.add(msg("skillbar-shift-lmb-free"));
                 meta.lore(lore);
                 icon.setItemMeta(meta);
             }
@@ -179,11 +208,12 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
             if (defId == null) {
                 inventory.setItem(slot, namedItem(
                         active ? Material.YELLOW_STAINED_GLASS_PANE : Material.LIME_STAINED_GLASS_PANE,
-                        (active ? "&e▶ " : "&a") + "Слот " + (hotbar + 1),
+                        "skillbar-slot-title",
+                        Map.of("prefix", active ? "&e▶ " : "&a", "slot", String.valueOf(hotbar + 1)),
                         List.of(
-                                active ? "&eВыбран для привязки" : "&7ЛКМ — выбрать слот",
-                                "&7Клавиша &f" + (hotbar + 1) + " &7— каст",
-                                "&cShift+ЛКМ &7— очистить"
+                                active ? msg("skillbar-slot-empty-active") : msg("skillbar-slot-empty-hint"),
+                                msg("skillbar-slot-key", Map.of("key", String.valueOf(hotbar + 1))),
+                                msg("skillbar-shift-clear")
                         )
                 ));
                 continue;
@@ -192,8 +222,12 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
             if (defOptional.isEmpty()) {
                 inventory.setItem(slot, namedItem(
                         Material.BARRIER,
-                        (active ? "&e▶ " : "&c") + "Слот " + (hotbar + 1),
-                        List.of("&7Битый бинд: &e" + defId, "&cShift+ЛКМ &7— очистить")
+                        "skillbar-slot-title",
+                        Map.of("prefix", active ? "&e▶ " : "&c", "slot", String.valueOf(hotbar + 1)),
+                        List.of(
+                                msg("skillbar-slot-broken", Map.of("def", defId)),
+                                msg("skillbar-shift-clear")
+                        )
                 ));
                 continue;
             }
@@ -202,14 +236,14 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
             ItemMeta meta = bound.getItemMeta();
             if (meta != null) {
                 List<Component> lore = meta.lore() == null ? new ArrayList<>() : new ArrayList<>(meta.lore());
-                lore.add(ColorUtil.component("&7"));
+                lore.add(Component.empty());
                 if (active) {
-                    lore.add(ColorUtil.component("&e▶ Выбран для замены"));
+                    lore.add(msg("skillbar-slot-bound-active"));
                 } else {
-                    lore.add(ColorUtil.component("&7ЛКМ — выбрать слот"));
+                    lore.add(msg("skillbar-slot-empty-hint"));
                 }
-                lore.add(ColorUtil.component("&7Клавиша &f" + (hotbar + 1) + " &7— каст"));
-                lore.add(ColorUtil.component("&cShift+ЛКМ &7— очистить"));
+                lore.add(msg("skillbar-slot-key", Map.of("key", String.valueOf(hotbar + 1))));
+                lore.add(msg("skillbar-shift-clear"));
                 meta.lore(lore);
                 bound.setItemMeta(meta);
             }
@@ -218,32 +252,54 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
     }
 
     private void renderControls() {
-        inventory.setItem(PREV_SLOT, namedItem(
-                Material.ARROW,
-                "&e← Назад",
-                List.of("&7Страница " + (page + 1) + "/" + (maxPage() + 1))
+        Map<String, String> pagePh = Map.of(
+                "page", String.valueOf(page + 1),
+                "pages", String.valueOf(maxPage() + 1)
+        );
+        inventory.setItem(PREV_SLOT, namedItem(Material.ARROW, "skillbar-prev",
+                List.of(msg("skillbar-page-lore", pagePh))));
+        boolean hasFilter = filter != null && !filter.isBlank();
+        inventory.setItem(SEARCH_SLOT, namedItem(
+                hasFilter ? Material.NAME_TAG : Material.OXEYE_DAISY,
+                hasFilter ? "skillbar-search-filter" : "skillbar-search",
+                hasFilter ? Map.of("filter", filter) : Map.of(),
+                hasFilter
+                        ? List.of(msg("skillbar-search-change"), msg("skillbar-search-reset"))
+                        : List.of(msg("skillbar-search-hint"))
         ));
-        inventory.setItem(INFO_SLOT, namedItem(
-                Material.BOOK,
-                "&6Панель скиллов",
+        inventory.setItem(BROWSER_SLOT, namedItem(Material.ENCHANTED_BOOK, "skillbar-browser-btn",
+                List.of(msg("skillbar-browser-lore-1"), msg("skillbar-browser-lore-2"))));
+        inventory.setItem(INFO_SLOT, namedItem(Material.BOOK, "skillbar-help-title",
                 List.of(
-                        "&71. Выберите слот &a1-9 &7ниже",
-                        "&72. Кликните скилл сверху",
-                        "&7",
-                        "&7В игре: &e1-9 &7каст слота",
-                        "&7         &eПКМ &7каст текущего",
-                        "&7Открыть: &e/dsc skills &7или &eF"
-                )
-        ));
-        inventory.setItem(NEXT_SLOT, namedItem(
-                Material.ARROW,
-                "&eВперёд →",
-                List.of("&7Страница " + (page + 1) + "/" + (maxPage() + 1))
-        ));
+                        msg("skillbar-help-1"),
+                        msg("skillbar-help-2"),
+                        Component.empty(),
+                        ColorUtil.component("&7В игре: &e1-9 &7каст слота"),
+                        ColorUtil.component("&7         &eПКМ &7каст текущего"),
+                        ColorUtil.component("&7Открыть: &e/dsc skills &7или &eF")
+                )));
+        inventory.setItem(NEXT_SLOT, namedItem(Material.ARROW, "skillbar-next",
+                List.of(msg("skillbar-page-lore", pagePh))));
+    }
+
+    private List<DefDefinition> filteredDefs() {
+        List<DefDefinition> all = context.binds().availableDefs(player);
+        if (filter == null || filter.isBlank()) {
+            return all;
+        }
+        String needle = filter.toLowerCase(Locale.ROOT);
+        List<DefDefinition> matches = new ArrayList<>();
+        for (DefDefinition def : all) {
+            if (def.id().toLowerCase(Locale.ROOT).contains(needle)
+                    || def.name().toLowerCase(Locale.ROOT).contains(needle)) {
+                matches.add(def);
+            }
+        }
+        return matches;
     }
 
     private List<DefDefinition> pageDefs() {
-        List<DefDefinition> all = context.binds().availableDefs(player);
+        List<DefDefinition> all = filteredDefs();
         int from = page * settings.listPageSize();
         if (from >= all.size()) {
             return List.of();
@@ -253,33 +309,47 @@ public final class SkillBarMenu implements org.bukkit.inventory.InventoryHolder 
     }
 
     private int maxPage() {
-        List<DefDefinition> all = context.binds().availableDefs(player);
+        List<DefDefinition> all = filteredDefs();
         if (all.isEmpty()) {
             return 0;
         }
         return (all.size() - 1) / settings.listPageSize();
     }
 
-    private ItemStack namedItem(Material material, String name) {
-        return namedItem(material, name, List.of());
+    private ItemStack fillerPane(Material material) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(" "));
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
-    private ItemStack namedItem(Material material, String name, List<String> loreLines) {
+    private ItemStack namedItem(Material material, String messageKey, List<Component> loreLines) {
+        return namedItem(material, messageKey, Map.of(), loreLines);
+    }
+
+    private ItemStack namedItem(Material material, String messageKey, Map<String, String> titlePh, List<Component> loreLines) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             return item;
         }
-        meta.displayName(ColorUtil.component(name));
+        meta.displayName(msg(messageKey, titlePh));
         if (!loreLines.isEmpty()) {
-            List<Component> lore = new ArrayList<>();
-            for (String line : loreLines) {
-                lore.add(ColorUtil.component(line));
-            }
-            meta.lore(lore);
+            meta.lore(loreLines);
         }
         meta.setHideTooltip(false);
         item.setItemMeta(meta);
         return item;
+    }
+
+    private Component msg(String key) {
+        return context.messages().format(key, Map.of());
+    }
+
+    private Component msg(String key, Map<String, String> placeholders) {
+        return context.messages().format(key, placeholders);
     }
 }

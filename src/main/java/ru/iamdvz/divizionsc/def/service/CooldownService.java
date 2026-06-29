@@ -1,13 +1,30 @@
 package ru.iamdvz.divizionsc.def.service;
 
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import ru.iamdvz.divizionsc.database.CooldownRepository;
 
 public final class CooldownService {
 
-    private final Map<UUID, Map<String, Long>> cooldowns = new HashMap<>();
+    private final Map<UUID, Map<String, Long>> cooldowns = new ConcurrentHashMap<>();
+    private CooldownRepository repository;
+
+    public void setRepository(CooldownRepository repository) {
+        this.repository = repository;
+    }
+
+    /** Подгрузить кулдауны из БД (кросс-сервер) в память. */
+    public void seed(UUID playerId, Map<String, Long> persisted) {
+        if (persisted == null || persisted.isEmpty()) {
+            return;
+        }
+        Map<String, Long> playerCooldowns = cooldowns.computeIfAbsent(playerId, ignored -> new ConcurrentHashMap<>());
+        for (Map.Entry<String, Long> entry : persisted.entrySet()) {
+            playerCooldowns.merge(entry.getKey(), entry.getValue(), Math::max);
+        }
+    }
 
     public boolean isReady(UUID playerId, String abilityId, double cooldownSeconds) {
         if (cooldownSeconds <= 0) {
@@ -40,7 +57,10 @@ public final class CooldownService {
             return;
         }
         long expiresAt = System.currentTimeMillis() + (long) (cooldownSeconds * 1000.0);
-        cooldowns.computeIfAbsent(playerId, ignored -> new HashMap<>()).put(abilityId, expiresAt);
+        cooldowns.computeIfAbsent(playerId, ignored -> new ConcurrentHashMap<>()).put(abilityId, expiresAt);
+        if (repository != null) {
+            repository.upsert(playerId, abilityId, expiresAt);
+        }
     }
 
     public void removePlayer(UUID playerId) {

@@ -11,6 +11,6 @@ public record DscBlock(
         Map<String, DscSection> sections
 ) {
     public boolean helper() {
-        return kind == DscBlockKind.MODULE || kind == DscBlockKind.EFFECT;
+        return kind == DscBlockKind.MODULE;
     }
 }

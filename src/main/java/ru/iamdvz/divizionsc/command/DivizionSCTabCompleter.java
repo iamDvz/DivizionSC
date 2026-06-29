@@ -14,7 +14,9 @@ import java.util.Locale;
 
 public final class DivizionSCTabCompleter implements TabCompleter {
 
-    private static final List<String> ROOT = List.of("list", "info", "cast", "give", "bind", "skills", "reload");
+    private static final List<String> ROOT = List.of(
+            "help", "list", "info", "cast", "give", "bind", "skills", "reload", "validate"
+    );
 
     private final PluginContext context;
 
@@ -53,7 +55,7 @@ public final class DivizionSCTabCompleter implements TabCompleter {
     private List<String> filterDefIds(String prefix) {
         List<String> ids = new ArrayList<>();
         for (DefDefinition def : context.defRegistry().all()) {
-            if (!def.helper()) {
+            if (!def.helper() && !def.passive()) {
                 ids.add(def.id());
             }
         }

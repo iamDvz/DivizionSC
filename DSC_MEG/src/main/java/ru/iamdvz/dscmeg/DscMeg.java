@@ -20,6 +20,7 @@ public final class DscMeg extends JavaPlugin {
 
         DscMegConfig config = new ConfigurationLoader(this).load();
         context = MegContext.create(this, config);
+        context.spawnService().startMaintenance();
         DivizionSCApi.effectHandlers().register(new VfxEffectHandler(context));
         getLogger().info("ModelEngine VFX bridge enabled.");
     }

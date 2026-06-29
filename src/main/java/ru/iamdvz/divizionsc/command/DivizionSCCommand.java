@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.logging.Level;
 
 public final class DivizionSCCommand implements CommandExecutor {
 
@@ -29,20 +30,71 @@ public final class DivizionSCCommand implements CommandExecutor {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        try {
+            return dispatch(sender, args);
+        } catch (Exception error) {
+            String joined = String.join(" ", args);
+            context.plugin().getLogger().log(
+                    Level.SEVERE,
+                    "Command failed: /" + label + (joined.isBlank() ? "" : " " + joined),
+                    error
+            );
+            sender.sendMessage(context.messages().format(
+                    "command-error",
+                    Map.of("error", error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage())
+            ));
+            return true;
+        }
+    }
+
+    private boolean dispatch(CommandSender sender, String[] args) {
         if (args.length == 0) {
-            return list(sender, args);
+            return help(sender);
         }
 
         return switch (args[0].toLowerCase(Locale.ROOT)) {
+            case "help", "?" -> help(sender);
             case "reload" -> reload(sender);
+            case "validate", "check" -> validate(sender);
             case "list" -> list(sender, args);
             case "info" -> info(sender, args);
             case "cast" -> cast(sender, args);
             case "give" -> give(sender, args);
             case "bind", "slot" -> bind(sender, args);
             case "skills", "bar", "binds" -> skills(sender);
-            default -> list(sender, args);
+            default -> castOrList(sender, args);
         };
+    }
+
+    private boolean help(CommandSender sender) {
+        sender.sendMessage(context.messages().format("usage-header", Map.of()));
+        sender.sendMessage(context.messages().format("usage-list", Map.of()));
+        sender.sendMessage(context.messages().format("usage-info", Map.of("def", "<id>")));
+        sender.sendMessage(context.messages().format("usage-cast", Map.of("def", "<id>")));
+        sender.sendMessage(context.messages().format("usage-give", Map.of("def", "<id>")));
+        sender.sendMessage(context.messages().format("usage-skills", Map.of()));
+        sender.sendMessage(context.messages().format("usage-bind", Map.of()));
+        if (sender.hasPermission(context.config().adminPermission())) {
+            sender.sendMessage(context.messages().format("usage-reload", Map.of()));
+            sender.sendMessage(context.messages().format("usage-validate", Map.of()));
+        }
+        return true;
+    }
+
+    private boolean castOrList(CommandSender sender, String[] args) {
+        if (sender instanceof Player player && context.defRegistry().find(args[0]).isPresent()) {
+            DefService.CastResult result = context.defs().castFromCommand(player, args[0]);
+            if (result == DefService.CastResult.NOT_FOUND) {
+                player.sendMessage(context.messages().format(
+                        "def-not-found",
+                        Map.of("def", args[0], "id", args[0])
+                ));
+            } else if (result != DefService.CastResult.SUCCESS) {
+                context.defs().notifyCastFailure(player, result, args[0]);
+            }
+            return true;
+        }
+        return list(sender, new String[]{"list", args[0]});
     }
 
     private boolean reload(CommandSender sender) {
@@ -69,6 +121,32 @@ public final class DivizionSCCommand implements CommandExecutor {
             for (String warning : report.warnings()) {
                 sender.sendMessage(ColorUtil.component("&e- " + warning));
             }
+        }
+        return true;
+    }
+
+    private boolean validate(CommandSender sender) {
+        if (!sender.hasPermission(context.config().adminPermission())) {
+            sendNoPermission(sender);
+            return true;
+        }
+        DefLoadReport report = context.validateDefs();
+        sender.sendMessage(context.messages().format(
+                "validate-header",
+                Map.of(
+                        "count", String.valueOf(report.loadedCount()),
+                        "errors", String.valueOf(report.errors().size()),
+                        "warnings", String.valueOf(report.warnings().size())
+                )
+        ));
+        for (String error : report.errors()) {
+            sender.sendMessage(ColorUtil.component("&c- " + error));
+        }
+        for (String warning : report.warnings()) {
+            sender.sendMessage(ColorUtil.component("&e- " + warning));
+        }
+        if (!report.hasIssues()) {
+            sender.sendMessage(context.messages().format("validate-ok", Map.of()));
         }
         return true;
     }
@@ -156,8 +234,18 @@ public final class DivizionSCCommand implements CommandExecutor {
             ));
             sender.sendMessage(context.messages().format(
                     "info-trigger",
-                    Map.of("trigger", def.trigger().name())
+                    Map.of("trigger", def.passive()
+                            ? passiveTriggerLabel(def)
+                            : def.trigger().name())
             ));
+            if (def.passive()) {
+                sender.sendMessage(ColorUtil.component("&7passive: &atrue"));
+                if (def.passiveKeyTrigger() != null && def.passivePressCount() > 1) {
+                    sender.sendMessage(ColorUtil.component(
+                            "&7combo: &e" + def.passivePressCount() + "x &7window &e"
+                                    + def.passivePressWindowTicks() + "t"));
+                }
+            }
             sender.sendMessage(context.messages().format(
                     "info-target",
                     Map.of("target", def.targetMode().name())
@@ -328,6 +416,16 @@ public final class DivizionSCCommand implements CommandExecutor {
         } catch (NumberFormatException ignored) {
         }
         return -1;
+    }
+
+    private static String passiveTriggerLabel(DefDefinition def) {
+        if (def.passiveTrigger() != null) {
+            return "PASSIVE:" + def.passiveTrigger().name();
+        }
+        if (def.passiveKeyTrigger() != null) {
+            return "PASSIVE:KEY:" + def.passiveKeyTrigger().name();
+        }
+        return "PASSIVE:?";
     }
 
     private void sendNoPermission(CommandSender sender) {

@@ -1,5 +1,7 @@
 package ru.iamdvz.divizionsc.def.loader.simple;
 
+import ru.iamdvz.divizionsc.def.effect.EffectVerbs;
+import ru.iamdvz.divizionsc.def.expr.ExpressionEvaluator;
 import ru.iamdvz.divizionsc.def.loader.ChainEntryParser;
 import ru.iamdvz.divizionsc.def.model.EffectDefinition;
 import ru.iamdvz.divizionsc.util.EffectKeys;
@@ -105,21 +107,55 @@ public final class SimpleEffectParser {
 
         String[] parts = line.split("\\s+");
         String head = parts[0].toLowerCase(Locale.ROOT);
+        String type = EffectVerbs.canonicalType(head);
+        if (type == null) {
+            return ParseResult.useVerbose();
+        }
 
-        return switch (head) {
+        return switch (type) {
             case "heal" -> amountEffect("heal", parts, 4.0);
-            case "dmg", "damage" -> amountEffect("damage", parts, 1.0);
-            case "tp", "teleport" -> amountEffect("teleport", parts, 5.0, "forward");
-            case "vel", "velocity" -> velocity(parts);
-            case "snd", "sound" -> sound(parts);
-            case "ptl", "particle" -> particle(parts);
-            case "pot", "potion" -> potion(parts);
-            case "lit", "lightning" -> lightning(parts);
-            case "msg", "message" -> message(parts);
-            case "call", "def", "chain" -> callDef(joinTail(parts, 1));
-            case "proj", "projectile" -> projectile(parts);
-            case "fx", "effectlib" -> effectLib(parts);
-            case "cmd", "command" -> command(parts);
+            case "damage" -> amountEffect("damage", parts, 1.0);
+            case "teleport" -> amountEffect("teleport", parts, 5.0, "forward");
+            case "velocity" -> velocity(parts);
+            case "sound" -> sound(parts);
+            case "particle" -> particle(parts);
+            case "potion" -> potion(parts);
+            case "lightning" -> lightning(parts);
+            case "message" -> message(parts);
+            case "def" -> callDef(joinTail(parts, 1));
+            case "projectile" -> projectile(parts);
+            case "effectlib" -> effectLib(parts);
+            case "vfx" -> modelEngineVfx(parts);
+            case "command" -> command(parts);
+            case "set" -> setVar(parts);
+            case "require" -> require(parts);
+            case "dash" -> powerEffect("dash", parts, 1.4, "power");
+            case "blink" -> powerEffect("blink", parts, 6.0, "distance");
+            case "pull" -> powerEffect("pull", parts, 1.0, "strength");
+            case "push" -> powerEffect("push", parts, 1.0, "strength");
+            case "shield" -> shield(parts);
+            case "give-money" -> moneyLine("give-money", parts);
+            case "take-money" -> moneyLine("take-money", parts);
+            case "money" -> moneyLine("money", parts);
+            case "give" -> giveItem(parts);
+            case "summon" -> summon(parts);
+            case "stun" -> stun(parts);
+            case "raycast" -> raycast(parts);
+            case "chain" -> chain(parts);
+            case "ignite" -> durationEffect("ignite", parts, "ticks", 60);
+            case "glow", "glowing" -> durationEffect("glow", parts, "duration", 100);
+            case "invis", "invisibility" -> durationEffect("invis", parts, "duration", 100);
+            case "root" -> durationEffect("root", parts, "duration", 40);
+            case "launch" -> powerEffect("launch", parts, 1.0, "power");
+            case "swap" -> ParseResult.parsed(new EffectDefinition("swap", Map.of(), List.of()));
+            case "explosion", "explode" -> explosion(parts);
+            case "cleanse", "purge" -> ParseResult.parsed(new EffectDefinition("cleanse", Map.of(), List.of()));
+            case "title" -> title(parts);
+            case "particle_projectile" -> particleProjectile(parts);
+            case "area" -> area(parts);
+            case "loop" -> loop(parts);
+            case "aura" -> aura(parts);
+            case "shape" -> shape(parts);
             default -> ParseResult.useVerbose();
         };
     }
@@ -143,7 +179,7 @@ public final class SimpleEffectParser {
 
     private ParseResult amountEffect(String type, String[] parts, double defaultAmount, String field) {
         Map<String, Object> data = new HashMap<>();
-        data.put(field, parts.length > 1 ? parseDouble(parts[1], defaultAmount) : defaultAmount);
+        data.put(field, parts.length > 1 ? numberOrText(parts[1], defaultAmount) : defaultAmount);
         if ("heal".equals(type)) {
             data.put("target", "self");
         }
@@ -254,6 +290,280 @@ public final class SimpleEffectParser {
         return ParseResult.parsed(new EffectDefinition("command", data, List.of()));
     }
 
+    private ParseResult setVar(String[] parts) {
+        if (parts.length < 3) {
+            return ParseResult.useVerbose();
+        }
+        String name = parts[1];
+        String rest = joinTail(parts, 2).trim();
+        if (rest.startsWith("=")) {
+            rest = rest.substring(1).trim();
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("var", name);
+        if (rest.length() >= 2 && rest.startsWith("\"") && rest.endsWith("\"")) {
+            data.put("string", rest.substring(1, rest.length() - 1));
+        } else {
+            data.put("value", rest);
+        }
+        return ParseResult.parsed(new EffectDefinition("set", data, List.of()));
+    }
+
+    private ParseResult require(String[] parts) {
+        String condition = joinTail(parts, 1).trim();
+        if (condition.isBlank()) {
+            return ParseResult.useVerbose();
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("condition", condition);
+        return ParseResult.parsed(new EffectDefinition("require", data, List.of()));
+    }
+
+    private ParseResult powerEffect(String type, String[] parts, double defaultValue, String field) {
+        Map<String, Object> data = new HashMap<>();
+        data.put(field, parts.length > 1 ? parseDouble(parts[1], defaultValue) : defaultValue);
+        return ParseResult.parsed(new EffectDefinition(type, data, List.of()));
+    }
+
+    private ParseResult shield(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("hearts", parseDouble(parts[1], 4));
+        }
+        if (parts.length > 2) {
+            String raw = parts[2];
+            if (raw.endsWith("s") || raw.endsWith("t")) {
+                data.put("duration", parseDuration(raw, 200));
+            } else {
+                data.put("duration", (int) Math.round(parseDouble(raw, 10) * 20));
+            }
+        }
+        return ParseResult.parsed(new EffectDefinition("shield", data, List.of()));
+    }
+
+    private ParseResult moneyLine(String type, String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if ("money".equals(type) && parts.length > 1) {
+            String op = parts[1].toLowerCase(Locale.ROOT);
+            if (op.startsWith("take") || op.startsWith("withdraw")) {
+                data.put("op", "take");
+                if (parts.length > 2) {
+                    data.put("amount", parseDouble(parts[2], 0));
+                }
+            } else if (op.startsWith("give") || op.startsWith("deposit")) {
+                data.put("op", "give");
+                if (parts.length > 2) {
+                    data.put("amount", parseDouble(parts[2], 0));
+                }
+            } else {
+                data.put("amount", parseDouble(parts[1], 0));
+            }
+        } else if (parts.length > 1) {
+            data.put("amount", parseDouble(parts[1], 0));
+        }
+        return ParseResult.parsed(new EffectDefinition(type, data, List.of()));
+    }
+
+    private ParseResult giveItem(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("material", (parts.length > 1 ? parts[1] : "STONE").toUpperCase(Locale.ROOT));
+        if (parts.length > 2) {
+            data.put("amount", (int) parseDouble(parts[2], 1));
+        }
+        return ParseResult.parsed(new EffectDefinition("give", data, List.of()));
+    }
+
+    private ParseResult summon(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("entity", (parts.length > 1 ? parts[1] : "ZOMBIE").toUpperCase(Locale.ROOT));
+        if (parts.length > 2) {
+            data.put("count", (int) parseDouble(parts[2], 1));
+        }
+        return ParseResult.parsed(new EffectDefinition("summon", data, List.of()));
+    }
+
+    private ParseResult stun(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("duration", parseDuration(parts[1], 40));
+        }
+        return ParseResult.parsed(new EffectDefinition("stun", data, List.of()));
+    }
+
+    private ParseResult raycast(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("distance", parseDouble(parts[1], 15));
+        }
+        if (parts.length > 2) {
+            data.put("hit_radius", parseDouble(parts[2], 1));
+        }
+        if (parts.length > 3) {
+            data.put("max_hits", (int) parseDouble(parts[3], 1));
+        }
+        return ParseResult.parsed(new EffectDefinition("raycast", data, List.of()));
+    }
+
+    private ParseResult chain(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("distance", parseDouble(parts[1], 18));
+        }
+        if (parts.length > 2) {
+            data.put("max_hits", (int) parseDouble(parts[2], 3));
+        }
+        if (parts.length > 3) {
+            data.put("hit_radius", parseDouble(parts[3], 1.5));
+        }
+        return ParseResult.parsed(new EffectDefinition("chain", data, List.of()));
+    }
+
+    private ParseResult durationEffect(String type, String[] parts, String field, int defaultValue) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put(field, (int) parseDouble(parts[1], defaultValue));
+        } else {
+            data.put(field, defaultValue);
+        }
+        return ParseResult.parsed(new EffectDefinition(type, data, List.of()));
+    }
+
+    private ParseResult explosion(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        for (int i = 1; i < parts.length; i++) {
+            String token = parts[i].toLowerCase(Locale.ROOT);
+            if ("fire".equals(token)) {
+                data.put("fire", true);
+            } else if ("break".equals(token) || "break_blocks".equals(token)) {
+                data.put("break_blocks", true);
+            } else if (!data.containsKey("power")) {
+                data.put("power", parseDouble(parts[i], 0));
+            }
+        }
+        return ParseResult.parsed(new EffectDefinition("explosion", data, List.of()));
+    }
+
+    private ParseResult title(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 2 && "actionbar".equalsIgnoreCase(parts[1])) {
+            data.put("actionbar", unquoteToken(parts[2]));
+            return ParseResult.parsed(new EffectDefinition("title", data, List.of()));
+        }
+        if (parts.length > 1) {
+            data.put("title", joinTail(parts, 1));
+        }
+        return ParseResult.parsed(new EffectDefinition("title", data, List.of()));
+    }
+
+    private ParseResult particleProjectile(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("particle", EffectKeys.normalizeParticleName(parts[1]));
+        }
+        if (parts.length > 2) {
+            data.put("speed", parseDouble(parts[2], 0.75));
+        }
+        if (parts.length > 3) {
+            data.put("max_distance", parseDouble(parts[3], 15));
+        }
+        return ParseResult.parsed(new EffectDefinition("particle_projectile", data, List.of()));
+    }
+
+    private ParseResult area(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("radius", parseDouble(parts[1], 5));
+        }
+        return ParseResult.parsed(new EffectDefinition("area", data, List.of()));
+    }
+
+    private ParseResult loop(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("iterations", (int) parseDouble(parts[1], 1));
+        }
+        if (parts.length > 2) {
+            data.put("interval", (int) parseDouble(parts[2], 1));
+        }
+        return ParseResult.parsed(new EffectDefinition("loop", data, List.of()));
+    }
+
+    private ParseResult aura(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        if (parts.length > 1) {
+            data.put("radius", parseDouble(parts[1], 4));
+        }
+        if (parts.length > 2) {
+            data.put("duration", parseDuration(parts[2], 100));
+        }
+        if (parts.length > 3) {
+            data.put("interval", (int) parseDouble(parts[3], 20));
+        }
+        return ParseResult.parsed(new EffectDefinition("aura", data, List.of()));
+    }
+
+    private ParseResult shape(String[] parts) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("shape", parts.length > 1 ? parts[1] : "circle");
+        if (parts.length > 2) {
+            data.put("particle", EffectKeys.normalizeParticleName(parts[2]));
+        }
+        if (parts.length > 3) {
+            data.put("radius", parseDouble(parts[3], 2));
+        }
+        return ParseResult.parsed(new EffectDefinition("shape", data, List.of()));
+    }
+
+    private ParseResult modelEngineVfx(String[] parts) {
+        if (parts.length < 3) {
+            return ParseResult.useVerbose();
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("model", parts[1]);
+
+        Map<String, Object> animation = new HashMap<>();
+        animation.put("name", parts[2]);
+        data.put("animations", List.of(animation));
+
+        int positional = 0;
+        for (int i = 3; i < parts.length; i++) {
+            String token = parts[i].toLowerCase(Locale.ROOT);
+            switch (token) {
+                case "follow", "follow-target" -> data.put("follow-target", true);
+                case "follow-caster", "follow-self" -> data.put("follow", "caster");
+                case "mount", "mount-target" -> data.put("mount-target", true);
+                case "glow", "glowing" -> data.put("glowing", true);
+                case "loop" -> animation.put("loop", true);
+                case "self", "caster", "target", "eyes", "effect" -> data.put("at", token);
+                default -> {
+                    if (isNumeric(token)) {
+                        if (positional == 0) {
+                            data.put("model-scale", parseDouble(token, 1.0));
+                            positional++;
+                        } else if (positional == 1) {
+                            data.put("remove-delay", (int) parseDouble(token, 40));
+                        }
+                    }
+                }
+            }
+        }
+
+        return ParseResult.parsed(new EffectDefinition("vfx", data, List.of()));
+    }
+
+    private boolean isNumeric(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        try {
+            Double.parseDouble(raw);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     private String shapeClass(String shape) {
         return switch (shape.toLowerCase(Locale.ROOT)) {
             case "helix" -> "HelixEffect";
@@ -305,6 +615,19 @@ public final class SimpleEffectParser {
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    /** Число — как Double; иначе сохраняем текст (переменная/формула, разрешается в рантайме). */
+    private Object numberOrText(String token, double fallback) {
+        Double parsed = ExpressionEvaluator.tryParse(token);
+        return parsed != null ? parsed : token;
+    }
+
+    private String unquoteToken(String value) {
+        if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+            return value.substring(1, value.length() - 1);
+        }
+        return value;
     }
 
     private String joinTail(String[] parts, int from) {

@@ -1,27 +1,25 @@
 package ru.iamdvz.divizionsc.def.loader;
 
-import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import ru.iamdvz.divizionsc.config.PluginConfig;
+import ru.iamdvz.divizionsc.def.loader.dsl.DscBlock;
 import ru.iamdvz.divizionsc.def.loader.dsl.DscCompiler;
 import ru.iamdvz.divizionsc.def.loader.dsl.DscParseException;
 import ru.iamdvz.divizionsc.def.loader.dsl.DscParser;
 import ru.iamdvz.divizionsc.def.loader.dsl.DscScript;
-import ru.iamdvz.divizionsc.def.loader.simple.SimpleDefCompiler;
-import ru.iamdvz.divizionsc.def.loader.verbose.VerboseEffectParser;
 import ru.iamdvz.divizionsc.def.model.DefDefinition;
-import ru.iamdvz.divizionsc.def.model.EffectDefinition;
+import ru.iamdvz.divizionsc.def.model.PassiveTriggerType;
 import ru.iamdvz.divizionsc.def.service.DefRegistry;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Level;
 
@@ -29,15 +27,11 @@ public final class DefLoader {
 
     private final JavaPlugin plugin;
     private final PluginConfig config;
-
-    private final SimpleDefCompiler simpleCompiler;
-    private final VerboseEffectParser verboseParser;
+    private Map<String, DscBlock> sharedModules = Map.of();
 
     public DefLoader(JavaPlugin plugin, PluginConfig config) {
         this.plugin = plugin;
         this.config = config;
-        this.simpleCompiler = new SimpleDefCompiler(config);
-        this.verboseParser = new VerboseEffectParser();
     }
 
     public void loadAll(DefRegistry registry, DefLoadReport report) {
@@ -51,25 +45,56 @@ public final class DefLoader {
 
         File[] files = folder.listFiles((dir, name) -> DefFileFilter.accepts(name));
         if (files == null || files.length == 0) {
-            String message = "No def files (defs-*.yml / defs-*.dsc) found in " + folder.getPath();
+            String message = "No def files (defs-*.dsc) found in " + folder.getPath();
             plugin.getLogger().warning(message);
             report.addWarning(message);
             return;
         }
+
+        Arrays.sort(files, Comparator.comparing(File::getName));
+        sharedModules = collectGlobalModules(files, report);
 
         for (File file : files) {
             loadFile(file, registry, report);
         }
         DefAddonLoader addonLoader = new DefAddonLoader(plugin, this);
         addonLoader.loadFromEnabledPlugins(registry, report);
+        sharedModules = Map.of();
+    }
+
+    private Map<String, DscBlock> collectGlobalModules(File[] files, DefLoadReport report) {
+        Map<String, DscBlock> modules = new LinkedHashMap<>();
+        DscParser parser = new DscParser();
+        for (File file : files) {
+            try {
+                String source = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+                DscScript script = parser.parse(source, file.getName());
+                for (DscBlock block : script.blocks()) {
+                    if (block.helper()) {
+                        DscBlock previous = modules.put(block.id(), block);
+                        if (previous != null) {
+                            report.addWarning("Module '" + block.id() + "' redefined in " + file.getName());
+                        }
+                    }
+                }
+            } catch (DscParseException e) {
+                logLoadError("DSC parse error while indexing modules in " + file.getName() + ": " + e.getMessage(), e,
+                        report);
+            } catch (IOException e) {
+                logLoadError("Failed to read DSC file " + file.getName(), e, report);
+            }
+        }
+        return modules;
     }
 
     public int loadFile(File file, DefRegistry registry, DefLoadReport report) {
-        if (isDscFile(file.getName())) {
-            return loadDscFile(file, registry, report);
+        if (!DefFileFilter.accepts(file.getName())) {
+            String message = "Skipped non-DSC def file: " + file.getName();
+            plugin.getLogger().warning(message);
+            report.addWarning(message);
+            return 0;
         }
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
-        return loadConfiguration(yaml, file.getName(), registry, report);
+        return loadDscFile(file, registry, report);
     }
 
     public int loadDscFile(File file, DefRegistry registry, DefLoadReport report) {
@@ -93,30 +118,56 @@ public final class DefLoader {
             return 0;
         }
 
+        List<DefDefinition> compiled;
+        try {
+            compiled = compiler.compile(script, sharedModules);
+        } catch (DscParseException e) {
+            logLoadError("DSC compile error in " + sourceLabel + ": " + e.getMessage(), e, report);
+            return 0;
+        } catch (RuntimeException e) {
+            logLoadError("DSC compile error in " + sourceLabel + ": " + e.getMessage(), e, report);
+            return 0;
+        }
+
         int loaded = 0;
-        for (DefDefinition def : compiler.compile(script)) {
+        for (DefDefinition def : compiled) {
+            if (def.helper() && !def.passive()) {
+                continue;
+            }
             try {
+                validatePassive(def, sourceLabel, report);
                 registry.register(def, sourceLabel, report);
                 loaded++;
                 report.defLoaded();
             } catch (Exception e) {
-                logLoadError("Failed to compile def '" + def.id() + "' from " + sourceLabel, e, report);
+                logLoadError("Failed to register def '" + def.id() + "' from " + sourceLabel, e, report);
             }
         }
         return loaded;
     }
 
-    private static boolean isDscFile(String name) {
-        return name != null && name.toLowerCase(Locale.ROOT).endsWith(".dsc");
+    public int loadStream(InputStream stream, String sourceLabel, DefRegistry registry, DefLoadReport report)
+            throws IOException {
+        if (!DefFileFilter.accepts(extractFileName(sourceLabel))) {
+            String message = "Skipped non-DSC def stream: " + sourceLabel;
+            report.addWarning(message);
+            return 0;
+        }
+        String source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        return loadDscSource(source, sourceLabel, registry, report);
+    }
+
+    private static String extractFileName(String sourceLabel) {
+        int colon = sourceLabel.lastIndexOf(':');
+        String path = colon >= 0 ? sourceLabel.substring(colon + 1) : sourceLabel;
+        int slash = path.lastIndexOf('/');
+        return slash >= 0 ? path.substring(slash + 1) : path;
     }
 
     private void copyDefaults(File folder) {
-        copyDefaultResource(folder, "defs/defs-examples.yml", "defs-examples.yml");
-        copyDefaultResource(folder, "defs/defs-advanced.yml", "defs-advanced.yml");
-        copyDefaultResource(folder, "defs/defs-combat.yml", "defs-combat.yml");
-        copyDefaultResource(folder, "defs/defs-magic.yml", "defs-magic.yml");
-        copyDefaultResource(folder, "defs/defs-boss.dsc", "defs-boss.dsc");
-        copyDefaultResource(folder, "defs/defs-script.dsc", "defs-script.dsc");
+        copyDefaultResource(folder, "defs/defs-examples.dsc", "defs-examples.dsc");
+        copyDefaultResource(folder, "defs/defs-advanced.dsc", "defs-advanced.dsc");
+        copyDefaultResource(folder, "defs/defs-fx-examples.dsc", "defs-fx-examples.dsc");
     }
 
     private void copyDefaultResource(File folder, String resourcePath, String targetName) {
@@ -135,55 +186,31 @@ public final class DefLoader {
         }
     }
 
-    public int loadStream(InputStream stream, String sourceLabel, DefRegistry registry, DefLoadReport report)
-            throws IOException {
-        if (sourceLabel.toLowerCase(Locale.ROOT).endsWith(".dsc")) {
-            String source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-            return loadDscSource(source, sourceLabel, registry, report);
+    private void validatePassive(DefDefinition def, String sourceLabel, DefLoadReport report) {
+        if (!def.passive()) {
+            return;
         }
-        try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
-            YamlConfiguration yaml = YamlConfiguration.loadConfiguration(reader);
-            return loadConfiguration(yaml, sourceLabel, registry, report);
+        if (!def.hasPassiveTrigger()) {
+            report.addWarning("Passive def '" + def.id() + "' in " + sourceLabel
+                    + " needs trigger: on damage / key shift / passive-trigger / passive-key");
         }
-    }
-
-    private int loadConfiguration(YamlConfiguration yaml, String sourceLabel, DefRegistry registry, DefLoadReport report) {
-        int loaded = 0;
-        for (String key : yaml.getKeys(false)) {
-            ConfigurationSection section = yaml.getConfigurationSection(key);
-            if (section == null) {
-                continue;
-            }
-            try {
-                DefDefinition def = parseDef(key.toLowerCase(Locale.ROOT), section);
-                registry.register(def, sourceLabel, report);
-                loaded++;
-                report.defLoaded();
-            } catch (Exception e) {
-                logLoadError("Failed to load def '" + key + "' from " + sourceLabel, e, report);
-            }
+        if (def.passiveKeyTrigger() != null && def.passivePressCount() > 1 && def.passivePressWindowTicks() < 1) {
+            report.addWarning("Passive def '" + def.id() + "' combo key needs press-window > 0");
         }
-        return loaded;
-    }
-
-    private DefDefinition parseDef(String id, ConfigurationSection section) {
-        return simpleCompiler.compile(id, section, new SimpleDefCompiler.EffectFallback() {
-            @Override
-            public List<EffectDefinition> parseVerbose(List<?> rawList) {
-                return verboseParser.parseEffectsList(rawList);
-            }
-
-            @Override
-            public EffectDefinition parseVerboseMap(Map<?, ?> raw) {
-                return verboseParser.parseEffect(raw);
-            }
-        });
+        if (def.helper()) {
+            report.addWarning("Passive def '" + def.id() + "' in " + sourceLabel + " is also helper");
+        }
+        if (def.passiveTrigger() == PassiveTriggerType.INTERVAL && def.passiveIntervalTicks() < 1) {
+            report.addWarning("Passive def '" + def.id() + "' interval trigger needs passive-interval > 0");
+        }
     }
 
     private void logLoadError(String message, Throwable error, DefLoadReport report) {
-        plugin.getLogger().warning(message);
+        if (plugin != null) {
+            plugin.getLogger().warning(message);
+        }
         report.addError(message);
-        if (config.debugLoadErrors() && error != null) {
+        if (config.debugLoadErrors() && error != null && plugin != null) {
             plugin.getLogger().log(Level.WARNING, message, error);
         }
     }

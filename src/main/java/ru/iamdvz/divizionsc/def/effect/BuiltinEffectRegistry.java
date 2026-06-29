@@ -36,10 +36,20 @@ final class BuiltinEffectRegistry {
     private final Map<String, BiConsumer<EffectContext, EffectDefinition>> handlers = new HashMap<>();
     private final JavaPlugin plugin;
     private final PluginContext context;
+    private final AdvancedEffects advanced;
+    private final ExtraEffects extra;
+    private final UtilityEffects utility;
 
     BuiltinEffectRegistry(JavaPlugin plugin, PluginContext context) {
         this.plugin = plugin;
         this.context = context;
+        this.advanced = new AdvancedEffects(
+                context,
+                context.scheduler(),
+                context.stunService()
+        );
+        this.extra = new ExtraEffects(context, context.scheduler());
+        this.utility = new UtilityEffects(context, context.scheduler());
         register("message", this::message);
         register("sound", this::sound);
         register("particle", this::particle);
@@ -59,6 +69,50 @@ final class BuiltinEffectRegistry {
         register("chain", this::invokeDef);
         register("ability", this::invokeDef);
         register("effectlib", (ctx, effect) -> context.effectLib().play(ctx, effect));
+        register("if", this::conditionalIf);
+        register("require", this::require);
+        register("chance", this::chance);
+        register("set", this::setVar);
+        register("set_var", this::setVar);
+        register("setvar", this::setVar);
+        register("loop", advanced::loop);
+        register("area", advanced::area);
+        register("stun", advanced::stun);
+        register("raycast", advanced::raycast);
+        register("beam", advanced::raycast);
+        register("chain", advanced::chain);
+        register("particle_projectile", advanced::particleProjectile);
+        register("ppj", advanced::particleProjectile);
+        register("pull", extra::pull);
+        register("push", extra::push);
+        register("money", extra::money);
+        register("give-money", extra::giveMoney);
+        register("take-money", extra::takeMoney);
+        register("dash", extra::dash);
+        register("blink", extra::blink);
+        register("shield", extra::shield);
+        register("summon", extra::summon);
+        register("totem", extra::totem);
+        register("give", extra::giveItem);
+        register("give_item", extra::giveItem);
+        register("giveitem", extra::giveItem);
+        register("repeat", extra::repeat);
+        register("shape", extra::shape);
+        register("shape_particle", extra::shape);
+        register("aura", extra::aura);
+        register("ignite", utility::ignite);
+        register("glow", utility::glow);
+        register("glowing", utility::glow);
+        register("invis", utility::invis);
+        register("invisibility", utility::invis);
+        register("title", utility::title);
+        register("swap", utility::swap);
+        register("explosion", utility::explosion);
+        register("explode", utility::explosion);
+        register("cleanse", utility::cleanse);
+        register("purge", utility::cleanse);
+        register("launch", utility::launch);
+        register("root", utility::root);
     }
 
     boolean run(String type, EffectContext ctx, EffectDefinition effect) {
@@ -74,6 +128,81 @@ final class BuiltinEffectRegistry {
         handlers.put(type.toLowerCase(Locale.ROOT), handler);
     }
 
+    private List<String> conditionStrings(EffectDefinition effect) {
+        Object raw = effect.data().get("conditions");
+        if (raw == null) {
+            raw = effect.data().get("condition");
+        }
+        List<String> result = new java.util.ArrayList<>();
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                result.add(String.valueOf(item));
+            }
+        } else if (raw instanceof String text && !text.isBlank()) {
+            result.add(text);
+        }
+        return result;
+    }
+
+    private List<EffectDefinition> effectList(EffectDefinition effect, String key) {
+        Object value = effect.data().get(key);
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .filter(EffectDefinition.class::isInstance)
+                    .map(EffectDefinition.class::cast)
+                    .toList();
+        }
+        return List.of();
+    }
+
+    private void conditionalIf(EffectContext ctx, EffectDefinition effect) {
+        boolean ok = context.conditions().matchesAll(conditionStrings(effect), ctx);
+        if (ok) {
+            List<EffectDefinition> branch = effectList(effect, "effects");
+            if (branch.isEmpty()) {
+                branch = effectList(effect, "then");
+            }
+            if (branch.isEmpty()) {
+                branch = effect.nested();
+            }
+            context.effectExecutor().runEffects(ctx, branch);
+        } else {
+            context.effectExecutor().runEffects(ctx, effectList(effect, "else"));
+        }
+    }
+
+    private void require(EffectContext ctx, EffectDefinition effect) {
+        if (!context.conditions().matchesAll(conditionStrings(effect), ctx)) {
+            ctx.vars().abort();
+        }
+    }
+
+    private void chance(EffectContext ctx, EffectDefinition effect) {
+        double probability = effect.number("chance", effect.number("value", effect.number("p", 0.5)));
+        if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < probability) {
+            List<EffectDefinition> branch = effectList(effect, "effects");
+            if (branch.isEmpty()) {
+                branch = effect.nested();
+            }
+            context.effectExecutor().runEffects(ctx, branch);
+        } else {
+            context.effectExecutor().runEffects(ctx, effectList(effect, "else"));
+        }
+    }
+
+    private void setVar(EffectContext ctx, EffectDefinition effect) {
+        String name = effect.text("var", effect.text("name", effect.text("key", "")));
+        if (name.isBlank()) {
+            return;
+        }
+        if (effect.data().containsKey("string")) {
+            ctx.vars().setString(name, context.placeholders().resolve(effect.text("string", ""), ctx));
+        } else {
+            String formula = effect.text("value", effect.text("expr", "0"));
+            ctx.vars().setNumber(name, context.expressions().evaluate(formula, ctx, 0));
+        }
+    }
+
     private void invokeDef(EffectContext ctx, EffectDefinition effect) {
         String defId = effect.text("def", effect.text("ability", effect.text("id", "")));
         if (defId.isBlank()) {
@@ -84,7 +213,8 @@ final class BuiltinEffectRegistry {
     }
 
     private void message(EffectContext ctx, EffectDefinition effect) {
-        String text = effect.text("text", effect.text("message", "&7..."));
+        String raw = effect.text("text", effect.text("message", "&7..."));
+        String text = context.placeholders().resolve(raw, ctx);
         ctx.caster().sendMessage(ColorUtil.component(text));
     }
 
@@ -95,7 +225,7 @@ final class BuiltinEffectRegistry {
             plugin.getLogger().warning("Unknown sound: " + raw);
             return;
         }
-        Location location = ctx.effectLocation();
+        Location location = EffectTargetHelper.location(context, ctx, effect);
         float volume = (float) effect.number("volume", 1.0);
         float pitch = (float) effect.number("pitch", 1.0);
         location.getWorld().playSound(location, sound, volume, pitch);
@@ -108,7 +238,7 @@ final class BuiltinEffectRegistry {
             plugin.getLogger().warning("Unknown particle: " + raw);
             return;
         }
-        Location location = ctx.effectLocation().clone().add(0, 1.0, 0);
+        Location location = EffectTargetHelper.location(context, ctx, effect).clone().add(0, 1.0, 0);
         int count = effect.integer("count", 10);
         double offset = effect.number("offset", 0.3);
         location.getWorld().spawnParticle(
@@ -121,31 +251,37 @@ final class BuiltinEffectRegistry {
     }
 
     private void damage(EffectContext ctx, EffectDefinition effect) {
-        LivingEntity entity = resolveLivingTarget(ctx, effect);
+        LivingEntity entity = EffectTargetHelper.living(context, ctx, effect);
         if (entity == null) {
             return;
         }
-        double amount = effect.number("amount", 1.0);
-        entity.damage(amount, ctx.caster());
+        double amount = resolveAmount(ctx, effect, "amount", 1.0);
+        EffectEntityDispatch.mutate(context.scheduler(), entity,
+                () -> entity.damage(amount, ctx.caster()));
     }
 
-    private LivingEntity resolveLivingTarget(EffectContext ctx, EffectDefinition effect) {
-        String target = effect.text("target", "entity").toLowerCase(Locale.ROOT);
-        return switch (target) {
-            case "caster", "self" -> ctx.caster();
-            case "target" -> ctx.targetEntity() != null ? ctx.targetEntity() : ctx.caster();
-            default -> ctx.effectEntity();
-        };
+    /** Числовое поле эффекта: число — как есть, строка — как формула/переменная каста ({@code set}). */
+    private double resolveAmount(EffectContext ctx, EffectDefinition effect, String key, double fallback) {
+        Object raw = effect.data().get(key);
+        if (raw instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (raw instanceof String text && !text.isBlank()) {
+            return context.expressions().evaluate(text, ctx, fallback);
+        }
+        return fallback;
     }
 
     private void heal(EffectContext ctx, EffectDefinition effect) {
-        LivingEntity entity = resolveLivingTarget(ctx, effect);
+        LivingEntity entity = EffectTargetHelper.living(context, ctx, effect);
         if (entity == null) {
             return;
         }
-        double amount = effect.number("amount", 4.0);
-        double newHealth = Math.min(entity.getMaxHealth(), entity.getHealth() + amount);
-        entity.setHealth(newHealth);
+        double amount = resolveAmount(ctx, effect, "amount", 4.0);
+        EffectEntityDispatch.mutate(context.scheduler(), entity, () -> {
+            double newHealth = Math.min(entity.getMaxHealth(), entity.getHealth() + amount);
+            entity.setHealth(newHealth);
+        });
     }
 
     private void potion(EffectContext ctx, EffectDefinition effect) {
@@ -153,9 +289,14 @@ final class BuiltinEffectRegistry {
         if (type == null) {
             return;
         }
+        LivingEntity entity = EffectTargetHelper.living(context, ctx, effect);
+        if (entity == null) {
+            return;
+        }
         int duration = effect.integer("duration", 100);
         int amplifier = effect.integer("amplifier", 0);
-        ctx.effectEntity().addPotionEffect(new PotionEffect(type, duration, amplifier));
+        EffectEntityDispatch.mutate(context.scheduler(), entity,
+                () -> entity.addPotionEffect(new PotionEffect(type, duration, amplifier)));
     }
 
     private void velocity(EffectContext ctx, EffectDefinition effect) {
@@ -168,27 +309,30 @@ final class BuiltinEffectRegistry {
             vector = entity.getLocation().getDirection().normalize().multiply(power);
             vector.setY(effect.number("y", vector.getY() + 0.3));
         }
-        entity.setVelocity(vector);
+        EffectEntityDispatch.mutate(context.scheduler(), entity, () -> entity.setVelocity(vector));
     }
 
     private void teleport(EffectContext ctx, EffectDefinition effect) {
-        Location destination;
+        context.scheduler().entity(ctx.caster(), () -> {
+            Location dest = resolveTeleportDestination(ctx, effect);
+            context.scheduler().region(dest, () -> {
+                Location finalDest = effect.bool("safe", true) ? findSafeLocation(dest) : dest;
+                ctx.caster().teleport(finalDest);
+            });
+        });
+    }
+
+    private Location resolveTeleportDestination(EffectContext ctx, EffectDefinition effect) {
         if (effect.data().containsKey("forward")) {
             double distance = effect.number("forward", 5.0);
-            destination = ctx.caster().getLocation().add(
+            return ctx.caster().getLocation().add(
                     ctx.caster().getLocation().getDirection().normalize().multiply(distance)
             );
-        } else if (ctx.targetLocation() != null && !effect.bool("to_caster", false)) {
-            destination = ctx.targetLocation().clone();
-        } else {
-            destination = ctx.effectLocation().clone();
         }
-
-        if (effect.bool("safe", true)) {
-            destination = findSafeLocation(destination);
+        if (ctx.targetLocation() != null && !effect.bool("to_caster", false)) {
+            return ctx.targetLocation().clone();
         }
-
-        ctx.caster().teleport(destination);
+        return ctx.effectLocation().clone();
     }
 
     private Location findSafeLocation(Location location) {
@@ -219,7 +363,7 @@ final class BuiltinEffectRegistry {
     }
 
     private void lightning(EffectContext ctx, EffectDefinition effect) {
-        Location location = ctx.effectLocation();
+        Location location = EffectTargetHelper.location(context, ctx, effect);
         if (effect.bool("damage", true)) {
             location.getWorld().strikeLightning(location);
         } else {
@@ -253,7 +397,7 @@ final class BuiltinEffectRegistry {
         }
         List<EffectDefinition> delayed = List.copyOf(nested);
         int generation = context.reloadGeneration();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        context.scheduler().entityLater(ctx.caster(), () -> {
             if (context.reloadGeneration() != generation) {
                 return;
             }
@@ -287,10 +431,15 @@ final class BuiltinEffectRegistry {
         }
 
         List<EffectDefinition> onHit = effect.children("on_hit");
+        List<EffectDefinition> onTick = effect.children("on_tick");
+        int tickInterval = Math.max(1, effect.integer("tick_interval", 1));
         projectile.setMetadata(
                 EffectExecutor.PROJECTILE_META,
                 new FixedMetadataValue(plugin, new EffectExecutor.ProjectilePayload(ctx, onHit))
         );
+        if (!onTick.isEmpty() && projectile instanceof Projectile launched) {
+            advanced.projectileTick(launched, ctx, onTick, tickInterval);
+        }
     }
 
     private PotionEffectType parsePotionEffect(String name) {

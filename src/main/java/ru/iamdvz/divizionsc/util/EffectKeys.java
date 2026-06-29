@@ -34,7 +34,15 @@ public final class EffectKeys {
             }
         }
 
-        String dotted = trimmed.toLowerCase(Locale.ROOT).replace('_', '.');
+        String resourceKey = enumStyleToResourceKey(upper);
+        if (resourceKey != null) {
+            Sound fromResource = Registry.SOUNDS.get(NamespacedKey.minecraft(resourceKey));
+            if (fromResource != null) {
+                return fromResource;
+            }
+        }
+
+        String dotted = trimmed.toLowerCase(Locale.ROOT);
         if (!dotted.contains(":")) {
             Sound namespaced = Registry.SOUNDS.get(NamespacedKey.minecraft(dotted));
             if (namespaced != null) {
@@ -50,6 +58,19 @@ public final class EffectKeys {
             }
         }
 
+        return null;
+    }
+
+    private static String enumStyleToResourceKey(String upper) {
+        if (upper.startsWith("ENTITY_")) {
+            return "entity." + upper.substring(7).toLowerCase(Locale.ROOT);
+        }
+        if (upper.startsWith("BLOCK_")) {
+            return "block." + upper.substring(6).toLowerCase(Locale.ROOT);
+        }
+        if (upper.startsWith("ITEM_")) {
+            return "item." + upper.substring(5).toLowerCase(Locale.ROOT);
+        }
         return null;
     }
 

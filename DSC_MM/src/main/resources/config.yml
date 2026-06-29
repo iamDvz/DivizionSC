@@ -1,0 +1,13 @@
+debug:
+  log-failures: true
+
+defaults:
+  mob-level: 1.0
+  skill-power: 1.0
+
+mechanic:
+  allow-helper: true
+  check-permission: false
+  apply-cooldown: false
+  require-target: false
+  caster: auto

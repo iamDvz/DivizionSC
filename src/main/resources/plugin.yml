@@ -1,19 +1,36 @@
 name: DivizionSC
-version: ${project.version}
+version: ${version}
 main: ru.iamdvz.divizionsc.DivizionSC
 api-version: '1.21'
+folia-supported: true
 description: Script-based abilities plugin inspired by MagicSpells
 authors: [iamdvz]
+
+# Зависимости-библиотеки подтягиваются Paper из Maven Central при запуске (без shade).
+libraries:
+  - net.elytrium:serializer:${elytriumVersion}
+  - com.zaxxer:HikariCP:${hikariVersion}
+  - org.xerial:sqlite-jdbc:${sqliteVersion}
+  - org.mariadb.jdbc:mariadb-java-client:${mariadbVersion}
+  - net.objecthunter:exp4j:${exp4jVersion}
+
+# EffectLib встроен в JAR (shadow). Остальное — soft-depend.
+softdepend:
+  - PlaceholderAPI
+  - Vault
+  - WorldGuard
+  - MythicMobs
+  - ModelEngine
 
 commands:
   dsc:
     description: DivizionSC abilities
-    usage: "/<command> <list|info|cast|give|bind|skills|reload> ..."
+    usage: "/<command> <list|info|cast|give|bind|skills|reload|validate> ..."
     aliases: [divizionsc, ability]
 
 permissions:
   divizionsc.admin:
-    description: Admin commands (reload, give)
+    description: Admin commands (reload, give, validate)
     default: op
   divizionsc.cast.*:
     description: Cast any def (wildcard)

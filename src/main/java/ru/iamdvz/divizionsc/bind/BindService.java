@@ -35,6 +35,10 @@ public final class BindService {
             player.sendMessage(context.messages().format("helper-only", Map.of("def", defId)));
             return;
         }
+        if (def.get().passive()) {
+            player.sendMessage(context.messages().format("passive-only", Map.of("def", defId)));
+            return;
+        }
         PlayerBinds binds = binds(player);
         binds.set(hotbarSlot, defId);
         repository.save(binds);
@@ -69,7 +73,7 @@ public final class BindService {
     public List<DefDefinition> availableDefs(Player player) {
         List<DefDefinition> result = new ArrayList<>();
         for (DefDefinition def : context.defRegistry().all()) {
-            if (def.helper()) {
+            if (def.helper() || def.passive()) {
                 continue;
             }
             if (player.hasPermission(def.permission()) || player.hasPermission("divizionsc.cast.*")) {

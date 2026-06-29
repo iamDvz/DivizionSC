@@ -1,52 +1,92 @@
 package ru.iamdvz.divizionsc.config;
 
-import org.bukkit.configuration.file.FileConfiguration;
+import ru.iamdvz.divizionsc.config.settings.Settings;
 
+/**
+ * Типизированный доступ к настройкам плагина. Фасад над {@link Settings} (Elytrium),
+ * чтобы остальной код не обращался к dotted-path конфигурации напрямую.
+ */
 public final class PluginConfig {
 
-    private final FileConfiguration yaml;
+    private final Settings settings;
+    private final SkillBarConfig skillBar;
 
-    public PluginConfig(FileConfiguration yaml) {
-        this.yaml = yaml;
+    public PluginConfig(Settings settings) {
+        this.settings = settings;
+        this.skillBar = new SkillBarConfig(settings.skillBar);
+    }
+
+    public Settings raw() {
+        return settings;
     }
 
     public String locale() {
-        return yaml.getString("locale", "ru");
+        return settings.locale;
     }
 
     public String defsFolder() {
-        return yaml.getString("defs-folder", yaml.getString("abilities-folder", "defs"));
+        return settings.defsFolder;
     }
 
     public double defaultRange() {
-        return yaml.getDouble("default-range", 32.0);
+        return settings.defaultRange;
     }
 
     public String adminPermission() {
-        return yaml.getString("admin-permission", "divizionsc.admin");
+        return settings.adminPermission;
     }
 
     public String castPermissionPrefix() {
-        return yaml.getString("cast-permission-prefix", "divizionsc.def.");
+        return settings.castPermissionPrefix;
     }
 
     public boolean cooldownMessages() {
-        return yaml.getBoolean("cooldown-messages", true);
+        return settings.cooldownMessages;
     }
 
     public boolean castMessages() {
-        return yaml.getBoolean("cast-messages", false);
+        return settings.castMessages;
     }
 
     public boolean debugLoadErrors() {
-        return yaml.getBoolean("debug-load-errors", true);
+        return settings.debugLoadErrors;
     }
 
     public int listPageSize() {
-        return yaml.getInt("list-page-size", 15);
+        return settings.listPageSize;
     }
 
     public SkillBarConfig skillBar() {
-        return new SkillBarConfig(yaml);
+        return skillBar;
+    }
+
+    public Settings.Database database() {
+        return settings.database;
+    }
+
+    public boolean opBypassesCooldown(org.bukkit.entity.Player player) {
+        Settings.OpBypass bypass = settings.opBypass;
+        return bypass.enabled && player.isOp() && bypass.ignoreCooldown;
+    }
+
+    public boolean opBypassesMana(org.bukkit.entity.Player player) {
+        Settings.OpBypass bypass = settings.opBypass;
+        return bypass.enabled && player.isOp() && bypass.ignoreMana;
+    }
+
+    public boolean manaEnabled() {
+        return settings.mana.enabled;
+    }
+
+    public double manaDefaultMax() {
+        return settings.mana.defaultMax;
+    }
+
+    public double manaDefaultAmount() {
+        return settings.mana.defaultAmount;
+    }
+
+    public int configVersion() {
+        return settings.configVersion;
     }
 }

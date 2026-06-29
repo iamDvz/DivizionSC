@@ -36,6 +36,12 @@ public final class ChainEntryParser {
             String argsRaw = defId.substring(paren + 1, defId.length() - 1).trim();
             return new ChainEntry(id, parseInlineArgs(argsRaw));
         }
+        int space = defId.indexOf(' ');
+        if (space > 0) {
+            String id = defId.substring(0, space).trim().toLowerCase(Locale.ROOT);
+            String argsRaw = defId.substring(space + 1).trim();
+            return new ChainEntry(id, parseInlineArgs(argsRaw));
+        }
         return new ChainEntry(defId.toLowerCase(Locale.ROOT), Map.of());
     }
 

@@ -10,10 +10,17 @@ public record DefDefinition(
         String description,
         String permission,
         double cooldown,
+        double mana,
         TriggerType trigger,
         TargetMode targetMode,
         double range,
         boolean helper,
+        boolean passive,
+        PassiveTriggerType passiveTrigger,
+        TriggerType passiveKeyTrigger,
+        int passiveIntervalTicks,
+        int passivePressCount,
+        int passivePressWindowTicks,
         CastItemSpec castItem,
         List<EffectDefinition> effects,
         Map<ChainTrigger, List<ChainEntry>> chain
@@ -32,10 +39,19 @@ public record DefDefinition(
                 .map(effect -> effect.withArgs(args))
                 .toList();
         return new DefDefinition(
-                id, name, description, permission, cooldown,
-                trigger, targetMode, range, helper, castItem,
-                mergedEffects, chain
+                id, name, description, permission, cooldown, mana,
+                trigger, targetMode, range, helper, passive, passiveTrigger, passiveKeyTrigger,
+                passiveIntervalTicks, passivePressCount, passivePressWindowTicks,
+                castItem, mergedEffects, chain
         );
+    }
+
+    public boolean isPassive() {
+        return passive;
+    }
+
+    public boolean hasPassiveTrigger() {
+        return passiveTrigger != null || passiveKeyTrigger != null;
     }
 
     public List<ChainEntry> chainEntries(ChainTrigger trigger) {

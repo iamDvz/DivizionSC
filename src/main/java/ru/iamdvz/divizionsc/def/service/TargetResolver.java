@@ -49,6 +49,25 @@ public final class TargetResolver {
         };
     }
 
+    /** Прицел по сущности без обязательной цели на касте. */
+    public LivingEntity raycastEntity(Player caster, double range) {
+        return resolveEntity(caster, range).entity();
+    }
+
+    /** Точка прицела: сущность или точка взгляда на дистанции. */
+    public Location raycastLocation(Player caster, double range) {
+        ResolvedTarget resolved = resolveEntity(caster, range);
+        if (resolved.entity() != null) {
+            return resolved.entity().getLocation();
+        }
+        return resolved.location();
+    }
+
+    /** Блок или точка взгляда на дистанции. */
+    public ResolvedTarget raycastBlock(Player caster, double range) {
+        return resolveBlock(caster, range);
+    }
+
     private ResolvedTarget resolveEntity(Player caster, double range) {
         RayTraceResult result = caster.getWorld().rayTraceEntities(
                 caster.getEyeLocation(),

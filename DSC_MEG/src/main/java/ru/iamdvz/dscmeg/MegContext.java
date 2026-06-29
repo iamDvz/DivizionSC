@@ -29,6 +29,7 @@ public final class MegContext {
     }
 
     public void shutdown() {
+        spawnService.stopMaintenance();
         for (var session : vfxTracker.activeSessions().values()) {
             spawnService.cleanup(session);
         }

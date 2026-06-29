@@ -1,0 +1,30 @@
+# Скопируйте в plugins/MythicMobs/Skills/
+# Механика dscdef — алиасы: dscskill, dsc, divizionsc
+#
+# Параметры:
+#   def / ability / id  — id def в DivizionSC (boss_slam из defs-examples.dsc)
+#   helper=true         — разрешить helper-def (по умолчанию true в DSC_MM/config.yml)
+#   caster=trigger      — кто кастует: auto | self | trigger | target
+#   cooldown=true       — применять кулдаун def (по умолчанию false)
+#   permission=true     — проверять perm def
+#   require-target=true — требовать цель
+
+DscBossSlam:
+  Cooldown: 12
+  Skills:
+    - dscdef{def=boss_slam;caster=trigger} @target
+
+DscBossVolley:
+  Cooldown: 18
+  Skills:
+    - dscdef{def=boss_volley;caster=trigger} @self
+
+DscBossEnrage:
+  Cooldown: 25
+  Skills:
+    - dscdef{def=boss_enrage;caster=trigger} @target
+
+# Helper-def из defs-examples.dsc:
+DscBossHealVfx:
+  Skills:
+    - dscdef{def=heal_vfx;helper=true;caster=trigger} @self

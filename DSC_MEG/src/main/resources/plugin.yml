@@ -2,6 +2,7 @@ name: DSC_MEG
 version: ${project.version}
 main: ru.iamdvz.dscmeg.DscMeg
 api-version: "1.21"
+folia-supported: true
 load: POSTWORLD
 depend:
   - DivizionSC

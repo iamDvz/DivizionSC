@@ -1,0 +1,61 @@
+# Примеры эффекта type: vfx для DivizionSC (нужен DSC_MEG.jar)
+#
+# Минимальный блок:
+#
+#   - type: vfx
+#     model: my_blueprint_id       # model-name — то же самое
+#     at: target                   # effect | self | caster | target | eyes
+#     animations:
+#       - name: attack
+#         speed: 1.0
+#         loop: false
+#
+# Позиция и следование:
+#   at / location     — где спавнить
+#   follow            — caster | target (следовать за сущностью)
+#   follow-target     — true = следовать за целью
+#   mount-target      — прикрепить модель к цели
+#   mount-bone        — кость (по умолчанию mount)
+#   mount-controller  — walking (по умолчанию)
+#   force-follow      — принудительное следование
+#
+# Внешний вид:
+#   model-scale       — масштаб (1.0)
+#   model-color       — hex без # (ffffff)
+#   glowing           — true/false
+#   glow-color        — hex
+#   shadow            — тень
+#   on-fire           — огонь на модели
+#   billboard         — FIXED | VERTICAL | HORIZONTAL | CENTER
+#   yaw-offset        — поворот по Y
+#   pitch-offset      — поворот по X
+#   lock-pitch/yaw/rotation
+#
+# Анимации (список animations):
+#   name              — имя анимации из blueprint
+#   delay             — задержка в тиках
+#   duration          — длительность (по умолчанию из blueprint)
+#   speed             — скорость
+#   loop              — зациклить
+#   overlap           — наложение с предыдущей
+#   lerp-in / lerp-out
+#
+# State machine (альтернатива списку animations):
+#   use-state-machine: true
+#   animation-state: my_state
+#   animation-state-speed: 1.0
+#
+# Жизненный цикл:
+#   remove-delay          — тики до удаления (-1 = не удалять)
+#   remove-on-host-death  — удалить при смерти хоста (mount-target)
+#
+# Смена частей модели (change-parts):
+#   change-parts:
+#     - model-id: combo_vfx
+#       parts: [blade]
+#       new-model-id: combo_vfx_b
+#       new-parts: [blade_b]
+#       delay: 20
+#
+# Настройки DSC_MEG: plugins/DSC_MEG/config.yml
+#   defaults.remove-delay, limits.max-active-per-world, debug.validate-animations

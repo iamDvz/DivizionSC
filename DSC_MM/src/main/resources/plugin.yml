@@ -1,0 +1,9 @@
+name: DSC_MM
+version: ${project.version}
+main: ru.iamdvz.dscmm.DscMm
+api-version: "1.21"
+folia-supported: true
+load: POSTWORLD
+depend:
+  - DivizionSC
+  - MythicMobs

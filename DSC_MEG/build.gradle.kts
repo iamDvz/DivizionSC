@@ -30,7 +30,7 @@ dependencies {
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
-    dependsOn(":pluginApiJar")
+    dependsOn(":jar")
 }
 
 tasks.processResources {
@@ -44,6 +44,7 @@ tasks.withType<Jar> {
 }
 
 tasks.register<Delete>("cleanServerPlugins") {
+    doNotTrackState("External server plugins directory")
     onlyIf { file(localPluginsDirPath).isDirectory }
     delete(fileTree(localPluginsDirPath) {
         include("DSC_MEG-*.jar")
@@ -52,6 +53,7 @@ tasks.register<Delete>("cleanServerPlugins") {
 }
 
 tasks.register<Copy>("copyPlugin") {
+    doNotTrackState("External server plugins directory")
     onlyIf { file(localPluginsDirPath).isDirectory }
     dependsOn("cleanServerPlugins", "jar")
     from(tasks.named("jar"))

@@ -2,9 +2,13 @@ package ru.iamdvz.divizionsc.def.service;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.block.Block;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import ru.iamdvz.divizionsc.PluginContext;
+import ru.iamdvz.divizionsc.api.IntegrationCastOptions;
 import ru.iamdvz.divizionsc.api.event.DefCastEvent;
 import ru.iamdvz.divizionsc.api.event.DefPreCastEvent;
 import ru.iamdvz.divizionsc.def.effect.EffectContext;
@@ -13,6 +17,7 @@ import ru.iamdvz.divizionsc.def.model.ChainTrigger;
 import ru.iamdvz.divizionsc.def.model.DefDefinition;
 import ru.iamdvz.divizionsc.def.model.TargetMode;
 import ru.iamdvz.divizionsc.def.model.TriggerType;
+import ru.iamdvz.divizionsc.passive.PassiveEventContext;
 
 import java.util.Map;
 import java.util.Optional;
@@ -25,9 +30,11 @@ public final class DefService {
         NOT_BOUND,
         NO_PERMISSION,
         COOLDOWN,
+        NO_MANA,
         NO_TARGET,
         WRONG_TRIGGER,
         HELPER_ONLY,
+        PASSIVE_ONLY,
         CANCELLED
     }
 
@@ -46,6 +53,9 @@ public final class DefService {
         if (def.helper()) {
             return CastResult.HELPER_ONLY;
         }
+        if (def.passive()) {
+            return CastResult.PASSIVE_ONLY;
+        }
         if (!def.trigger().matches(trigger)) {
             return CastResult.WRONG_TRIGGER;
         }
@@ -61,6 +71,9 @@ public final class DefService {
         if (def.helper()) {
             return CastResult.HELPER_ONLY;
         }
+        if (def.passive()) {
+            return CastResult.PASSIVE_ONLY;
+        }
         return castInternal(player, def, player.getInventory().getItemInMainHand(), TriggerType.COMMAND);
     }
 
@@ -73,7 +86,140 @@ public final class DefService {
         if (def.helper()) {
             return CastResult.HELPER_ONLY;
         }
+        if (def.passive()) {
+            return CastResult.PASSIVE_ONLY;
+        }
         return castInternal(player, def, null, TriggerType.ANY);
+    }
+
+    public CastResult castFromIntegration(
+            Player player,
+            String defId,
+            LivingEntity targetEntity,
+            Location targetLocation,
+            Block targetBlock,
+            IntegrationCastOptions options
+    ) {
+        IntegrationCastOptions resolvedOptions = options == null ? IntegrationCastOptions.defaults() : options;
+        Optional<DefDefinition> optionalDef = context.defRegistry().find(defId);
+        if (optionalDef.isEmpty()) {
+            return CastResult.NOT_FOUND;
+        }
+
+        DefDefinition def = optionalDef.get();
+        if (def.helper() && !resolvedOptions.allowHelper()) {
+            return CastResult.HELPER_ONLY;
+        }
+
+        if (resolvedOptions.checkPermission() && !hasCastPermission(player, def)) {
+            return CastResult.NO_PERMISSION;
+        }
+
+        if (resolvedOptions.applyCooldown()
+                && !context.config().opBypassesCooldown(player)
+                && !context.cooldowns().isReady(player.getUniqueId(), def.id(), def.cooldown())) {
+            return CastResult.COOLDOWN;
+        }
+
+        CastResult manaResult = checkMana(player, def);
+        if (manaResult != CastResult.SUCCESS) {
+            return manaResult;
+        }
+
+        LivingEntity entity = targetEntity;
+        Location location = targetLocation;
+        Block block = targetBlock;
+        if (entity == null && location == null) {
+            TargetResolver.ResolvedTarget resolved = context.targetResolver().resolve(player, def);
+            entity = resolved.entity();
+            location = resolved.location();
+            block = resolved.block();
+        } else if (location == null && entity != null) {
+            location = entity.getLocation();
+        }
+
+        if (resolvedOptions.requireTarget() || def.targetMode() == TargetMode.ENTITY) {
+            if (entity == null && def.targetMode() == TargetMode.ENTITY) {
+                return CastResult.NO_TARGET;
+            }
+        }
+
+        DefPreCastEvent preCast = new DefPreCastEvent(player, def, TriggerType.COMMAND);
+        Bukkit.getPluginManager().callEvent(preCast);
+        if (preCast.isCancelled()) {
+            return CastResult.CANCELLED;
+        }
+
+        EffectContext effectContext = new EffectContext(
+                player,
+                entity,
+                location,
+                block,
+                def,
+                null,
+                0
+        );
+
+        executeDef(effectContext);
+
+        if (resolvedOptions.applyCooldown() && !context.config().opBypassesCooldown(player)) {
+            context.cooldowns().apply(player.getUniqueId(), def.id(), def.cooldown());
+        }
+
+        spendMana(player, def);
+
+        Bukkit.getPluginManager().callEvent(new DefCastEvent(player, def, TriggerType.COMMAND));
+        return CastResult.SUCCESS;
+    }
+
+    public CastResult firePassive(Player player, DefDefinition def, PassiveEventContext event) {
+        if (!def.passive() || def.helper()) {
+            return CastResult.NOT_FOUND;
+        }
+        if (!def.hasPassiveTrigger()) {
+            return CastResult.NOT_FOUND;
+        }
+        if (!hasCastPermission(player, def)) {
+            return CastResult.NO_PERMISSION;
+        }
+
+        if (!context.config().opBypassesCooldown(player)
+                && !context.cooldowns().isReady(player.getUniqueId(), def.id(), def.cooldown())) {
+            return CastResult.COOLDOWN;
+        }
+
+        CastResult manaResult = checkMana(player, def);
+        if (manaResult != CastResult.SUCCESS) {
+            return manaResult;
+        }
+
+        LivingEntity targetEntity = event.targetEntity();
+        Location location = event.location() != null ? event.location() : player.getLocation();
+        if (def.targetMode() == TargetMode.ENTITY && targetEntity == null) {
+            return CastResult.NO_TARGET;
+        }
+
+        EffectContext effectContext = new EffectContext(
+                player,
+                targetEntity,
+                location,
+                null,
+                def,
+                null,
+                0
+        );
+        if (event.damage() > 0) {
+            effectContext.vars().setNumber("damage", event.damage());
+            effectContext.vars().setNumber("event_damage", event.damage());
+        }
+
+        executeDef(effectContext);
+
+        if (!context.config().opBypassesCooldown(player)) {
+            context.cooldowns().apply(player.getUniqueId(), def.id(), def.cooldown());
+        }
+        spendMana(player, def);
+        return CastResult.SUCCESS;
     }
 
     private CastResult castInternal(Player player, DefDefinition def, ItemStack sourceItem, TriggerType trigger) {
@@ -81,13 +227,19 @@ public final class DefService {
             return CastResult.NO_PERMISSION;
         }
 
-        if (!context.cooldowns().isReady(player.getUniqueId(), def.id(), def.cooldown())) {
+        if (!context.config().opBypassesCooldown(player)
+                && !context.cooldowns().isReady(player.getUniqueId(), def.id(), def.cooldown())) {
             if (context.config().cooldownMessages()) {
                 long remaining = context.cooldowns().remainingMillis(player.getUniqueId(), def.id());
                 double seconds = remaining / 1000.0;
                 context.messages().send(player, "cooldown", Component.text(String.format("%.1f", seconds)));
             }
             return CastResult.COOLDOWN;
+        }
+
+        CastResult manaResult = checkMana(player, def);
+        if (manaResult != CastResult.SUCCESS) {
+            return manaResult;
         }
 
         TargetResolver.ResolvedTarget target = context.targetResolver().resolve(player, def);
@@ -113,7 +265,11 @@ public final class DefService {
         );
 
         executeDef(effectContext);
-        context.cooldowns().apply(player.getUniqueId(), def.id(), def.cooldown());
+
+        if (!context.config().opBypassesCooldown(player)) {
+            context.cooldowns().apply(player.getUniqueId(), def.id(), def.cooldown());
+        }
+        spendMana(player, def);
 
         if (context.config().castMessages()) {
             player.sendMessage(context.messages().format(
@@ -133,6 +289,8 @@ public final class DefService {
             case NO_PERMISSION -> context.messages().send(player, "no-permission");
             case COOLDOWN -> {
             }
+            case NO_MANA -> {
+            }
             case NO_TARGET -> context.messages().send(player, "no-target");
             case WRONG_TRIGGER -> {
                 String id = defId != null ? defId : "?";
@@ -141,6 +299,10 @@ public final class DefService {
             case HELPER_ONLY -> {
                 String id = defId != null ? defId : "?";
                 player.sendMessage(context.messages().format("helper-only", Map.of("def", id)));
+            }
+            case PASSIVE_ONLY -> {
+                String id = defId != null ? defId : "?";
+                player.sendMessage(context.messages().format("passive-only", Map.of("def", id)));
             }
         }
     }
@@ -180,15 +342,47 @@ public final class DefService {
     }
 
     public CastResult castFromItem(Player player, ItemStack item, TriggerType trigger) {
+        return castFromItem(player, item, trigger, true);
+    }
+
+    public CastResult castFromItem(Player player, ItemStack item, TriggerType trigger, boolean notifyOnFailure) {
         Optional<String> defId = context.castItems().readDefId(item);
         if (defId.isEmpty()) {
             return CastResult.NOT_FOUND;
         }
-        CastResult result = cast(player, defId.get(), trigger, item);
-        if (result != CastResult.SUCCESS && result != CastResult.NOT_FOUND) {
-            notifyCastFailure(player, result, defId.get());
+        String id = defId.get();
+        Optional<DefDefinition> optionalDef = context.defRegistry().find(id);
+        CastResult result = cast(player, id, trigger, item);
+        if (notifyOnFailure && result != CastResult.SUCCESS && result != CastResult.NOT_FOUND) {
+            if (result != CastResult.WRONG_TRIGGER
+                    || optionalDef.isEmpty()
+                    || shouldNotifyWrongTrigger(optionalDef.get(), trigger)) {
+                notifyCastFailure(player, result, id);
+            }
         }
         return result;
+    }
+
+    static boolean shouldNotifyWrongTrigger(DefDefinition def, TriggerType attempted) {
+        if (def.trigger() == TriggerType.COMMAND) {
+            return false;
+        }
+        return switch (attempted) {
+            case RIGHT_CLICK, LEFT_CLICK, DROP, SWAP_HANDS -> true;
+            default -> false;
+        };
+    }
+
+    private CastResult checkMana(Player player, DefDefinition def) {
+        if (!context.mana().canAfford(player, def.mana())) {
+            context.messages().send(player, "no-mana");
+            return CastResult.NO_MANA;
+        }
+        return CastResult.SUCCESS;
+    }
+
+    private void spendMana(Player player, DefDefinition def) {
+        context.mana().spend(player, def.mana());
     }
 
     private boolean hasCastPermission(Player player, DefDefinition def) {

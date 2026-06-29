@@ -54,13 +54,13 @@ public final class CastTriggerListener implements Listener {
             DefService.CastResult result = context.defs().castFromItem(player, item, trigger);
             if (result == DefService.CastResult.SUCCESS) {
                 event.setCancelled(true);
+                return;
             }
+        } else if (BindCastHelper.tryCastCurrentSlot(context, player, trigger)) {
+            event.setCancelled(true);
             return;
         }
-
-        if (BindCastHelper.tryCastCurrentSlot(context, player, trigger)) {
-            event.setCancelled(true);
-        }
+        context.passives().handleKeyPress(player, trigger);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)

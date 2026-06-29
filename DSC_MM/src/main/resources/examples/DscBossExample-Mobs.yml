@@ -1,0 +1,18 @@
+# Скопируйте в plugins/MythicMobs/Mobs/
+# Требует: DivizionSC + DSC_MM + defs-examples.dsc (boss_slam, boss_volley, boss_enrage)
+#
+# Спавн: /mm m spawn DscBossExample
+# Босс кастует DSC-способности через механику dscdef при атаке и по таймеру.
+
+DscBossExample:
+  Type: WITHER_SKELETON
+  Display: '&4&lПовелитель теней'
+  Health: 800
+  Damage: 10
+  Options:
+    MovementSpeed: 0.28
+    PreventOtherDrops: true
+  Skills:
+    - skill{s=DscBossSlam} @target ~onAttack 0.3
+    - skill{s=DscBossVolley} @PlayersInRadius{r=24} ~onTimer:280 1
+    - skill{s=DscBossEnrage} @target ~onTimer:400 1

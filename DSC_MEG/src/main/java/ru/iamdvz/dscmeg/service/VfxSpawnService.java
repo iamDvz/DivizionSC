@@ -5,12 +5,14 @@ import com.ticxo.modelengine.api.model.ActiveModel;
 import com.ticxo.modelengine.api.model.ModeledEntity;
 import com.ticxo.modelengine.api.mount.controller.MountControllerSupplier;
 import com.ticxo.modelengine.api.mount.controller.MountControllerTypes;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.plugin.java.JavaPlugin;
+import ru.iamdvz.divizionsc.platform.Scheduler;
+import ru.iamdvz.divizionsc.platform.SchedulerProvider;
+import ru.iamdvz.divizionsc.platform.TaskHandle;
 import ru.iamdvz.dscmeg.MegContext;
 import ru.iamdvz.dscmeg.config.DscMegConfig;
 import ru.iamdvz.dscmeg.model.VfxSession;
@@ -25,16 +27,20 @@ import java.util.logging.Logger;
 public final class VfxSpawnService {
 
     private static final long BONE_SETUP_DELAY_TICKS = 1L;
+    private static final long MAINTENANCE_INTERVAL_TICKS = 100L;
 
     private final JavaPlugin plugin;
     private final MegContext context;
+    private final Scheduler core;
     private final VfxScheduler scheduler;
     private final Logger log;
+    private TaskHandle maintenanceTask;
 
     public VfxSpawnService(JavaPlugin plugin, MegContext context) {
         this.plugin = plugin;
         this.context = context;
-        this.scheduler = new VfxScheduler(plugin);
+        this.core = SchedulerProvider.create(plugin);
+        this.scheduler = new VfxScheduler(core);
         this.log = plugin.getLogger();
     }
 
@@ -85,7 +91,7 @@ public final class VfxSpawnService {
                 model.setModelRotationLocked(true);
             }
 
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            core.entityLater(spawnedStand, () -> {
                 if (!spawnedStand.isValid() || modeledEntity.isDestroyed()) {
                     return;
                 }
@@ -101,6 +107,14 @@ public final class VfxSpawnService {
         });
 
         long actualDespawn = resolveDespawnDelay(params);
+        // Защита от вечного стенда: remove-delay 0 имеет смысл только с follow/mount-якорем.
+        // Без якоря (никто не вызовет cleanup) считаем despawn из анимаций, минимум 1 тик.
+        boolean hasLifecycleAnchor = params.followEntity() != null
+                || (params.mountEntity() != null && (params.removeOnHostDeath() || params.removeDelay() == 0));
+        if (actualDespawn <= 0 && !hasLifecycleAnchor) {
+            actualDespawn = Math.max(1L, scheduler.computeDespawnDelay(
+                    params.animationEntries(), params.changePartEntries()));
+        }
 
         scheduleFollow(session, params);
         scheduleHostDeathWatch(session, params);
@@ -111,7 +125,7 @@ public final class VfxSpawnService {
         scheduler.changeParts(session, model, modeledEntity, stand, params.changePartEntries());
 
         if (actualDespawn > 0) {
-            session.trackTask(Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, () -> cleanup(session), actualDespawn));
+            session.trackTask(core.entityLater(stand, () -> cleanup(session), actualDespawn));
         }
 
         return () -> cleanup(session);
@@ -185,7 +199,7 @@ public final class VfxSpawnService {
         ArmorStand stand = session.stand();
         int[] ticksSinceTeleport = {0};
 
-        session.trackTask(Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
+        session.trackTask(core.entityTimer(stand, () -> {
             if (!stand.isValid()) {
                 return;
             }
@@ -236,7 +250,7 @@ public final class VfxSpawnService {
         Entity mountEntity = params.mountEntity();
         ArmorStand stand = session.stand();
 
-        session.trackTask(Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
+        session.trackTask(core.entityTimer(stand, () -> {
             if (!stand.isValid()) {
                 return;
             }
@@ -246,13 +260,41 @@ public final class VfxSpawnService {
         }, 20L, 20L));
     }
 
+    /** Запускает периодическую уборку: снимает «мёртвые» сессии и пересчитывает лимиты мира. */
+    public void startMaintenance() {
+        if (maintenanceTask != null) {
+            return;
+        }
+        maintenanceTask = core.globalTimer(this::sweep, MAINTENANCE_INTERVAL_TICKS, MAINTENANCE_INTERVAL_TICKS);
+    }
+
+    public void stopMaintenance() {
+        if (maintenanceTask != null) {
+            maintenanceTask.cancel();
+            maintenanceTask = null;
+        }
+    }
+
+    /**
+     * Чистит сессии, чей стенд исчез не через {@link #cleanup} (выгрузка чанка, /kill, рестарт),
+     * и пересчитывает счётчики мира — иначе лимит {@code maxActivePerWorld} навсегда «уплывает».
+     */
+    private void sweep() {
+        for (VfxSession session : context.vfxTracker().activeSessions().values()) {
+            if (!session.stand().isValid()) {
+                cleanup(session);
+            }
+        }
+        context.vfxTracker().reconcileWorldCounts();
+    }
+
     public void cleanup(VfxSession session) {
         if (!session.cleaned().compareAndSet(false, true)) {
             return;
         }
         context.vfxTracker().unregister(session);
-        for (int taskId : session.scheduledTaskIds()) {
-            Bukkit.getScheduler().cancelTask(taskId);
+        for (TaskHandle handle : session.scheduledTasks()) {
+            handle.cancel();
         }
         if (session.stand().isValid()) {
             session.stand().remove();

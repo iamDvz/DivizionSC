@@ -5,8 +5,7 @@ import java.util.regex.Pattern;
 
 public final class DefFileFilter {
 
-    private static final Pattern DEFS_PATTERN = Pattern.compile("defs-.*\\.(yml|yaml|dsc)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern LEGACY = Pattern.compile("examples\\.ya?ml", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DEFS_PATTERN = Pattern.compile("defs-.*\\.dsc", Pattern.CASE_INSENSITIVE);
 
     private DefFileFilter() {
     }
@@ -15,10 +14,7 @@ public final class DefFileFilter {
         if (fileName == null) {
             return false;
         }
-        String lower = fileName.toLowerCase(Locale.ROOT);
-        return DEFS_PATTERN.matcher(lower).matches()
-                || LEGACY.matcher(lower).matches()
-                || "advanced.yml".equalsIgnoreCase(lower);
+        return DEFS_PATTERN.matcher(fileName.toLowerCase(Locale.ROOT)).matches();
     }
 
     public static boolean acceptsJarEntry(String entryName) {
@@ -30,6 +26,6 @@ public final class DefFileFilter {
         }
         int slash = entryName.lastIndexOf('/');
         String name = slash >= 0 ? entryName.substring(slash + 1) : entryName;
-        return accepts(name) || "advanced.yml".equalsIgnoreCase(name);
+        return accepts(name);
     }
 }

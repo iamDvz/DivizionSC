@@ -2,6 +2,8 @@ package ru.iamdvz.divizionsc.def.service;
 
 import ru.iamdvz.divizionsc.def.loader.DefLoadReport;
 import ru.iamdvz.divizionsc.def.model.DefDefinition;
+import ru.iamdvz.divizionsc.def.model.PassiveTriggerType;
+import ru.iamdvz.divizionsc.def.model.TriggerType;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -32,9 +34,11 @@ public final class DefRegistry {
 
     private static DefDefinition copyWithId(DefDefinition def, String id) {
         return new DefDefinition(
-                id, def.name(), def.description(), def.permission(), def.cooldown(),
-                def.trigger(), def.targetMode(), def.range(), def.helper(), def.castItem(),
-                def.effects(), def.chain()
+                id, def.name(), def.description(), def.permission(), def.cooldown(), def.mana(),
+                def.trigger(), def.targetMode(), def.range(), def.helper(), def.passive(),
+                def.passiveTrigger(), def.passiveKeyTrigger(), def.passiveIntervalTicks(),
+                def.passivePressCount(), def.passivePressWindowTicks(),
+                def.castItem(), def.effects(), def.chain()
         );
     }
 
@@ -58,6 +62,21 @@ public final class DefRegistry {
 
     public Collection<DefDefinition> all() {
         return defs.values();
+    }
+
+    public Collection<DefDefinition> passivesByTrigger(PassiveTriggerType trigger) {
+        return defs.values().stream()
+                .filter(DefDefinition::passive)
+                .filter(def -> def.passiveTrigger() == trigger)
+                .toList();
+    }
+
+    public Collection<DefDefinition> passivesByKey(TriggerType key) {
+        return defs.values().stream()
+                .filter(DefDefinition::passive)
+                .filter(def -> def.passiveKeyTrigger() != null)
+                .filter(def -> TriggerType.triggersMatch(def.passiveKeyTrigger(), key))
+                .toList();
     }
 
     public int size() {

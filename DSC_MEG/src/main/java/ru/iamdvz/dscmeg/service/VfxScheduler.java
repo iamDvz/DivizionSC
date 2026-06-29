@@ -6,7 +6,7 @@ import com.ticxo.modelengine.api.animation.property.IAnimationProperty;
 import com.ticxo.modelengine.api.model.ActiveModel;
 import com.ticxo.modelengine.api.model.ModeledEntity;
 import org.bukkit.entity.ArmorStand;
-import org.bukkit.plugin.java.JavaPlugin;
+import ru.iamdvz.divizionsc.platform.Scheduler;
 import ru.iamdvz.dscmeg.model.AnimationEntry;
 import ru.iamdvz.dscmeg.model.ChangePartEntry;
 import ru.iamdvz.dscmeg.model.VfxSession;
@@ -15,10 +15,10 @@ import java.util.List;
 
 public final class VfxScheduler {
 
-    private final JavaPlugin plugin;
+    private final Scheduler scheduler;
 
-    public VfxScheduler(JavaPlugin plugin) {
-        this.plugin = plugin;
+    public VfxScheduler(Scheduler scheduler) {
+        this.scheduler = scheduler;
     }
 
     public void animationChain(
@@ -51,7 +51,7 @@ public final class VfxScheduler {
             final String capturedPrev = (!overlap && i > 0) ? prevName : null;
             final String capturedName = name;
 
-            session.trackTask(plugin.getServer().getScheduler().scheduleSyncDelayedTask(plugin, () -> {
+            session.trackTask(scheduler.entityLater(stand, () -> {
                 if (!stand.isValid()) {
                     return;
                 }
@@ -85,7 +85,7 @@ public final class VfxScheduler {
             String newModelId = entry.newModelId();
             int delay = entry.delay();
 
-            session.trackTask(plugin.getServer().getScheduler().scheduleSyncDelayedTask(plugin, () -> {
+            session.trackTask(scheduler.entityLater(stand, () -> {
                 if (!stand.isValid()) {
                     return;
                 }

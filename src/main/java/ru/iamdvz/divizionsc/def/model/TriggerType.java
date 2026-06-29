@@ -27,6 +27,38 @@ public enum TriggerType {
     COMMAND,
     ANY;
 
+    /** Клавиша для пассивки; {@code null}, если строка — не известный триггер ввода. */
+    public static TriggerType parsePassiveKey(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String normalized = raw.toLowerCase(Locale.ROOT).replace('-', '_');
+        return switch (normalized) {
+            case "right_click", "rightclick", "right", "rclick", "use", "key_use" -> RIGHT_CLICK;
+            case "left_click", "leftclick", "left", "lclick", "key_attack" -> LEFT_CLICK;
+            case "sneak", "shift", "key_sneak", "key_shift" -> SNEAK;
+            case "sprint", "ctrl", "key_sprint", "key_ctrl" -> SPRINT;
+            case "jump", "space", "key_jump", "key_space" -> JUMP;
+            case "forward", "w", "key_forward", "key_w" -> FORWARD;
+            case "backward", "back", "s", "key_backward", "key_back", "key_s" -> BACKWARD;
+            case "strafe_left", "key_left", "key_a", "a" -> LEFT;
+            case "strafe_right", "key_right", "key_d", "d" -> RIGHT;
+            case "drop", "q", "key_drop", "key_q" -> DROP;
+            case "swap_hands", "swap", "f", "key_swap", "key_f", "offhand" -> SWAP_HANDS;
+            case "hotbar", "key_hotbar", "slot" -> HOTBAR;
+            case "1", "key_1", "hotbar_1", "slot_1" -> KEY_1;
+            case "2", "key_2", "hotbar_2", "slot_2" -> KEY_2;
+            case "3", "key_3", "hotbar_3", "slot_3" -> KEY_3;
+            case "4", "key_4", "hotbar_4", "slot_4" -> KEY_4;
+            case "5", "key_5", "hotbar_5", "slot_5" -> KEY_5;
+            case "6", "key_6", "hotbar_6", "slot_6" -> KEY_6;
+            case "7", "key_7", "hotbar_7", "slot_7" -> KEY_7;
+            case "8", "key_8", "hotbar_8", "slot_8" -> KEY_8;
+            case "9", "key_0", "key_9", "hotbar_9", "slot_9" -> KEY_9;
+            default -> null;
+        };
+    }
+
     public static TriggerType parse(String raw) {
         if (raw == null || raw.isBlank()) {
             return COMMAND;

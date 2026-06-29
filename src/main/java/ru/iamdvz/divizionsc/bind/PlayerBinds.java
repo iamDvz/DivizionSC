@@ -9,6 +9,7 @@ public final class PlayerBinds {
 
     private final UUID playerId;
     private final String[] slots;
+    private volatile boolean dirty;
 
     public PlayerBinds(UUID playerId) {
         this.playerId = playerId;
@@ -36,10 +37,37 @@ public final class PlayerBinds {
             return;
         }
         slots[hotbarSlot] = defId;
+        dirty = true;
     }
 
     public void clear(int hotbarSlot) {
         set(hotbarSlot, null);
+    }
+
+    public boolean isDirty() {
+        return dirty;
+    }
+
+    /** Сливает данные из БД: не перезаписывает слоты, изменённые локально. */
+    public void mergeFromDb(String[] dbSlots) {
+        if (dbSlots == null) {
+            return;
+        }
+        if (!dirty) {
+            for (int i = 0; i < HOTBAR_SIZE; i++) {
+                slots[i] = dbSlots[i];
+            }
+            return;
+        }
+        for (int i = 0; i < HOTBAR_SIZE; i++) {
+            if (isBlank(slots[i]) && !isBlank(dbSlots[i])) {
+                slots[i] = dbSlots[i];
+            }
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     public String[] slotsCopy() {
