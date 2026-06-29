@@ -23,14 +23,15 @@ public final class DscLanguageCatalog {
         root.put("version", pluginVersion);
         root.put("languageId", "dsc");
         root.put("fileExtension", ".dsc");
-        root.put("blockKeywords", List.of("ability", "passive", "module", "def", "effect"));
-        root.put("deprecatedBlockKeywords", List.of("def", "effect"));
+        root.put("blockKeywords", DscSyntax.blockKeywords());
+        root.put("deprecatedBlockKeywords", DscSyntax.deprecatedBlockKeywords());
         root.put("sectionKeywords", List.of(
                 "meta", "cast", "effects", "start", "hit", "done",
-                "do", "on cast", "on hit", "on done", "complete", "end",
-                "after", "if", "else if", "else", "chance", "vfx", "meg", "fx", "effectlib",
-                "projectile", "tick", "area", "loop", "aura", ">>", "@"
+                "stack", "after", "if", "when", "else", "chance",
+                "area", "loop", "aura", "projectile", "fx", "vfx"
         ));
+        root.put("sectionAliases", DscSyntax.sectionAliases());
+        root.put("routeSuffixes", DscSyntax.routeSuffixes());
         root.put("deprecatedKeywords", List.of("use", "call", "do", "def", "effect", "wait"));
         root.put("syntax", syntaxGuide());
         root.put("targetDirectives", List.of(
@@ -40,6 +41,8 @@ public final class DscLanguageCatalog {
         ));
         root.put("routeSyntax", DscSyntax.ROUTE);
         root.put("moduleCallSyntax", DscSyntax.MODULE_CALL);
+        root.put("stackSyntax", DscSyntax.STACK_BLOCK);
+        root.put("moduleExtendsSyntax", DscSyntax.MODULE_EXTENDS);
         root.put("fxProperties", fxProperties());
         root.put("properties", properties());
         root.put("verbs", verbs());
@@ -71,6 +74,7 @@ public final class DscLanguageCatalog {
         addProperty(list, "presses", List.of("combo", "press-count"), "Число нажатий для комбо", "3");
         addProperty(list, "press-window", List.of("press-interval"), "Окно между нажатиями", "2s");
         addProperty(list, "interval", List.of("passive-interval"), "Период для on interval", "60t");
+        addProperty(list, "extends", List.of("extend"), "Наследование module", "strike");
         return list;
     }
 
@@ -303,13 +307,16 @@ public final class DscLanguageCatalog {
 
     private static List<Map<String, String>> syntaxGuide() {
         return List.of(
-                entry("blocks", "ability | passive | module { meta { } cast { } }"),
-                entry("meta", "key: value — cd, key, target, range, perm, item, name, desc, event"),
-                entry("sections", "cast/effects — тело; start/hit/done — chain (@module only)"),
-                entry("effects", "verb(args) | verb arg | verb — авто-цель без >>"),
-                entry("modules", "@module | @module arg | @module(dmg=5) >> route"),
+                entry("canonical", "SYNTAX.md — единый стандарт v2"),
+                entry("blocks", "ability | passive | module { properties cast { } }"),
+                entry("properties", "key: value — cooldown, key, target, range, perm, item"),
+                entry("sections", "cast/effects — тело; start/hit/done — только @module"),
+                entry("effects", "verb(args) >> route — канон; heal 6 — совместимость"),
+                entry("modules", DscSyntax.MODULE_CALL),
+                entry("stack", DscSyntax.STACK_BLOCK),
+                entry("extends", DscSyntax.MODULE_EXTENDS),
                 entry("route", DscSyntax.ROUTE),
-                entry("aliases", "def→ability, effect→module, do→cast, when→if, ->→>>, on cast→start")
+                entry("deprecated", "def→ability, effect→module, do→cast, use/call→@module")
         );
     }
 

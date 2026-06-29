@@ -6,7 +6,7 @@ import java.util.Map;
 public record DscBlock(
         DscBlockKind kind,
         String id,
-        List<String> params,
+        List<DscModuleParam> params,
         Map<String, String> properties,
         Map<String, DscSection> sections
 ) {

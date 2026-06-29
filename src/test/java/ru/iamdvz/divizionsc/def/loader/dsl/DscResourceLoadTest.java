@@ -10,9 +10,7 @@ import ru.iamdvz.divizionsc.def.service.DefRegistry;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,14 +50,15 @@ class DscResourceLoadTest {
 
     private void compileResource(String resource) throws Exception {
         PluginConfig config = new PluginConfig(new Settings());
-        DscCompiler compiler = new DscCompiler(config);
+        DefLoader loader = new DefLoader(null, config);
+        DefLoadReport report = new DefLoadReport();
 
         try (InputStream stream = getClass().getClassLoader().getResourceAsStream(resource)) {
             assertNotNull(stream, resource);
             String source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-            DscScript script = new DscParser().parse(source, resource);
-            List<DefDefinition> defs = compiler.compile(script);
-            assertFalse(defs.isEmpty(), resource);
+            int loaded = loader.loadDscSource(source, resource, new DefRegistry(), report);
+            assertTrue(loaded > 0, resource);
+            assertTrue(report.errors().isEmpty(), report.errors().toString());
         }
     }
 }

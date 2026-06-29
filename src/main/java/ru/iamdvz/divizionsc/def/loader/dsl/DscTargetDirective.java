@@ -29,6 +29,24 @@ public final class DscTargetDirective {
     private static final Pattern SINGLE_LINE = Pattern.compile(
             "^(.*?)\\s>>\\s+(" + TOKEN + ")\\s*$"
     );
+    /** {@code effect(args) at target} — читаемый алиас для {@code >> target}. */
+    private static final Pattern AT_BLOCK = Pattern.compile(
+            "^(.*?)\\s+at\\s+(" + TOKEN + ")\\s*\\{\\s*$",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern AT_LINE = Pattern.compile(
+            "^(.*?)\\s+at\\s+(" + TOKEN + ")\\s*$",
+            Pattern.CASE_INSENSITIVE
+    );
+    /** {@code effect(args) to target} — алиас {@code >> target}. */
+    private static final Pattern TO_BLOCK = Pattern.compile(
+            "^(.*?)\\s+to\\s+(" + TOKEN + ")\\s*\\{\\s*$",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern TO_LINE = Pattern.compile(
+            "^(.*?)\\s+to\\s+(" + TOKEN + ")\\s*$",
+            Pattern.CASE_INSENSITIVE
+    );
 
     public record Route(String from, String to) {
         public static final Route NONE = new Route(null, null);
@@ -115,6 +133,23 @@ public final class DscTargetDirective {
         if (singleLine.matches()) {
             return endOnly(singleLine.group(2));
         }
+
+        Matcher atBlock = AT_BLOCK.matcher(trimmed);
+        if (atBlock.matches()) {
+            return endOnly(atBlock.group(2));
+        }
+        Matcher atLine = AT_LINE.matcher(trimmed);
+        if (atLine.matches()) {
+            return endOnly(atLine.group(2));
+        }
+        Matcher toBlock = TO_BLOCK.matcher(trimmed);
+        if (toBlock.matches()) {
+            return endOnly(toBlock.group(2));
+        }
+        Matcher toLine = TO_LINE.matcher(trimmed);
+        if (toLine.matches()) {
+            return endOnly(toLine.group(2));
+        }
         return null;
     }
 
@@ -126,11 +161,47 @@ public final class DscTargetDirective {
     }
 
     private static String stripLineBody(String trimmed, Route route) {
-        int first = trimmed.indexOf(">>");
-        if (first < 0) {
+        int cut = firstRouteMarker(trimmed);
+        if (cut < 0) {
             return trimmed;
         }
-        return trimmed.substring(0, first).trim();
+        return trimmed.substring(0, cut).trim();
+    }
+
+    /** Позиция первого маршрутного суффикса {@code >>}, {@code at}, {@code to} вне скобок. */
+    private static int firstRouteMarker(String trimmed) {
+        int depth = 0;
+        int best = -1;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c == '(') {
+                depth++;
+                continue;
+            }
+            if (c == ')') {
+                depth = Math.max(0, depth - 1);
+                continue;
+            }
+            if (depth != 0) {
+                continue;
+            }
+            if (c == '>' && i + 1 < trimmed.length() && trimmed.charAt(i + 1) == '>') {
+                best = best < 0 ? i : Math.min(best, i);
+            }
+            if (i + 3 <= trimmed.length() && trimmed.regionMatches(true, i, " at ", 0, 4)
+                    && matchesRouteTail(trimmed, i + 4)) {
+                best = best < 0 ? i : Math.min(best, i);
+            }
+            if (i + 3 <= trimmed.length() && trimmed.regionMatches(true, i, " to ", 0, 4)
+                    && matchesRouteTail(trimmed, i + 4)) {
+                best = best < 0 ? i : Math.min(best, i);
+            }
+        }
+        return best;
+    }
+
+    private static boolean matchesRouteTail(String trimmed, int from) {
+        return trimmed.substring(from).trim().matches("(" + TOKEN + ")(\\s*\\{)?");
     }
 
     private static Route route(String fromRaw, String toRaw) {

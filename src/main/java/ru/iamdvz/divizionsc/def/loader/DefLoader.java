@@ -28,6 +28,7 @@ public final class DefLoader {
     private final JavaPlugin plugin;
     private final PluginConfig config;
     private Map<String, DscBlock> sharedModules = Map.of();
+    private Map<String, DscBlock> classpathModuleIndex;
 
     public DefLoader(JavaPlugin plugin, PluginConfig config) {
         this.plugin = plugin;
@@ -120,7 +121,7 @@ public final class DefLoader {
 
         List<DefDefinition> compiled;
         try {
-            compiled = compiler.compile(script, sharedModules);
+            compiled = compiler.compile(script, resolveSharedModules());
         } catch (DscParseException e) {
             logLoadError("DSC compile error in " + sourceLabel + ": " + e.getMessage(), e, report);
             return 0;
@@ -164,7 +165,48 @@ public final class DefLoader {
         return slash >= 0 ? path.substring(slash + 1) : path;
     }
 
+    private Map<String, DscBlock> resolveSharedModules() {
+        if (!sharedModules.isEmpty()) {
+            return sharedModules;
+        }
+        return classpathModuleIndex();
+    }
+
+    private Map<String, DscBlock> classpathModuleIndex() {
+        if (classpathModuleIndex != null) {
+            return classpathModuleIndex;
+        }
+        Map<String, DscBlock> modules = new LinkedHashMap<>();
+        DscParser parser = new DscParser();
+        List<String> resources = List.of(
+                "defs/defs-bricks.dsc",
+                "defs/defs-advanced.dsc",
+                "defs/defs-examples.dsc",
+                "defs/defs-fx-examples.dsc"
+        );
+        ClassLoader loader = plugin != null ? plugin.getClass().getClassLoader() : DefLoader.class.getClassLoader();
+        for (String resource : resources) {
+            try (InputStream stream = loader.getResourceAsStream(resource)) {
+                if (stream == null) {
+                    continue;
+                }
+                String source = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+                DscScript script = parser.parse(source, resource);
+                for (DscBlock block : script.blocks()) {
+                    if (block.helper()) {
+                        modules.putIfAbsent(block.id(), block);
+                    }
+                }
+            } catch (IOException | DscParseException ignored) {
+                // classpath index is best-effort
+            }
+        }
+        classpathModuleIndex = modules;
+        return modules;
+    }
+
     private void copyDefaults(File folder) {
+        copyDefaultResource(folder, "defs/defs-bricks.dsc", "defs-bricks.dsc");
         copyDefaultResource(folder, "defs/defs-examples.dsc", "defs-examples.dsc");
         copyDefaultResource(folder, "defs/defs-advanced.dsc", "defs-advanced.dsc");
         copyDefaultResource(folder, "defs/defs-fx-examples.dsc", "defs-fx-examples.dsc");

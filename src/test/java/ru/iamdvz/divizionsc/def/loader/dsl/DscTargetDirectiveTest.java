@@ -85,6 +85,21 @@ class DscTargetDirectiveTest {
     }
 
     @Test
+    void parsesToRouteAlias() {
+        DefDefinition def = compile("""
+                ability test {
+                  cast {
+                    damage(5) to target
+                    heal(3) to self
+                  }
+                }
+                """);
+
+        assertEquals("target", def.effects().get(0).text("target", null));
+        assertEquals("self", def.effects().get(1).text("target", null));
+    }
+
+    @Test
     void parsesRouteOnUseAndAfterBlock() {
         DscScript script = parser.parse("""
                 ability test {

@@ -7,13 +7,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import ru.iamdvz.divizionsc.def.loader.ChainEntryParser;
-import ru.iamdvz.divizionsc.def.model.ChainEntry;
 
 public final class DscParser {
 
     private static final Pattern TOP_LEVEL = Pattern.compile(
-            "^(ability|passive|module|def|effect)\\s+([a-zA-Z][a-zA-Z0-9_]*)\\s*(\\(([a-zA-Z0-9_,\\s]*)\\))?\\s*\\{\\s*$",
+            "^(ability|passive|module|def|effect)\\s+([a-zA-Z][a-zA-Z0-9_]*)\\s*(\\(([a-zA-Z0-9_,\\s=]*)\\))?(?:\\s+extends\\s+([a-zA-Z][a-zA-Z0-9_]*))?\\s*\\{\\s*$",
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern SECTION = Pattern.compile(
@@ -30,6 +28,10 @@ public final class DscParser {
             "^(if|when)\\s*\\((.+?)\\)\\s*\\{\\s*$",
             Pattern.CASE_INSENSITIVE
     );
+    private static final Pattern IF_BLOCK_BARE = Pattern.compile(
+            "^(if|when)\\s+([^({]+?)\\s*\\{\\s*$",
+            Pattern.CASE_INSENSITIVE
+    );
     private static final Pattern ELSE_IF_BODY = Pattern.compile(
             "^else\\s+if\\s*\\((.+?)\\)\\s*$",
             Pattern.CASE_INSENSITIVE
@@ -39,7 +41,7 @@ public final class DscParser {
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern CHANCE_BLOCK = Pattern.compile(
-            "^chance\\s*\\(([^)]+)\\)\\s*\\{\\s*$",
+            "^chance\\s*(?:\\(([^)]+)\\)|([^({]+))\\s*\\{\\s*$",
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern VFX_HEAD = Pattern.compile(
@@ -52,6 +54,10 @@ public final class DscParser {
     );
     private static final Pattern NESTED_SECTION = Pattern.compile(
             "^(hit|tick|on_hit|on_tick)\\s*\\{\\s*$",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern STACK_HEAD = Pattern.compile(
+            "^(stack|compose|pipe|batch)$",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -87,9 +93,13 @@ public final class DscParser {
         String blockKeyword = DscSyntax.normalizeBlockKeyword(top.group(1));
         DscBlockKind kind = DscSyntax.blockKind(blockKeyword);
         String id = top.group(2).toLowerCase(Locale.ROOT);
-        List<String> params = parseParams(top.group(4));
+        List<DscModuleParam> params = parseParams(top.group(4));
+        String extendsModule = top.group(5) != null ? top.group(5).toLowerCase(Locale.ROOT) : null;
 
         Map<String, String> properties = new LinkedHashMap<>();
+        if (extendsModule != null) {
+            properties.put("extends", extendsModule);
+        }
         Map<String, DscSection> sections = new LinkedHashMap<>();
         int cursor = index + 1;
         int depth = 1;
@@ -242,10 +252,16 @@ public final class DscParser {
             return parseIfChain(statements, lines, index, ifBlock.group(2).trim(), lineRoute);
         }
 
+        Matcher ifBlockBare = IF_BLOCK_BARE.matcher(opensBlock ? head + " {" : head);
+        if (opensBlock && ifBlockBare.matches()) {
+            return parseIfChain(statements, lines, index, ifBlockBare.group(2).trim(), lineRoute);
+        }
+
         Matcher chanceBlock = CHANCE_BLOCK.matcher(opensBlock ? head + " {" : head);
         if (opensBlock && chanceBlock.matches()) {
+            String chance = chanceBlock.group(1) != null ? chanceBlock.group(1).trim() : chanceBlock.group(2).trim();
             ParseSectionResult nested = parseSection(lines, index + 1);
-            statements.add(new DscStatement.ChanceBlock(chanceBlock.group(1).trim(), nested.section(), lineRoute));
+            statements.add(new DscStatement.ChanceBlock(chance, nested.section(), lineRoute));
             return nested.nextIndex();
         }
 
@@ -264,8 +280,17 @@ public final class DscParser {
             return parseCallBlock(statements, lines, index, call, lineRoute);
         }
 
-        if (head.startsWith("@")) {
-            statements.add(withRoute(parseAtModuleCall(head, line.number()), lineRoute));
+        Matcher stackBlock = STACK_HEAD.matcher(head);
+        if (opensBlock && stackBlock.matches()) {
+            ParseSectionResult nested = parseSection(lines, index + 1);
+            statements.add(new DscStatement.StackBlock(nested.section(), lineRoute));
+            return nested.nextIndex();
+        }
+
+        if (DscModuleCallParser.looksLikeModuleLine(head)) {
+            for (DscStatement.ModuleCall call : DscModuleCallParser.parse(head, line.number()).calls()) {
+                statements.add(withRoute(call, lineRoute));
+            }
             return index + 1;
         }
 
@@ -438,18 +463,6 @@ public final class DscParser {
         return next;
     }
 
-    private DscStatement.ModuleCall parseAtModuleCall(String body, int lineNumber) {
-        ChainEntry entry = ChainEntryParser.parseString(body.trim());
-        if (entry.defId().isBlank()) {
-            throw new DscParseException("@module requires module id", lineNumber);
-        }
-        Map<String, String> named = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> arg : entry.args().entrySet()) {
-            named.put(arg.getKey().toLowerCase(Locale.ROOT), String.valueOf(arg.getValue()));
-        }
-        return new DscStatement.ModuleCall(entry.defId(), List.of(), named);
-    }
-
     private boolean isDelayCall(String name) {
         return "after".equals(name) || "delay".equals(name) || "wait".equals(name);
     }
@@ -484,15 +497,15 @@ public final class DscParser {
         return "";
     }
 
-    private List<String> parseParams(String raw) {
+    private List<DscModuleParam> parseParams(String raw) {
         if (raw == null || raw.isBlank()) {
             return List.of();
         }
-        List<String> params = new ArrayList<>();
+        List<DscModuleParam> params = new ArrayList<>();
         for (String part : raw.split(",")) {
             String trimmed = part.trim();
             if (!trimmed.isEmpty()) {
-                params.add(trimmed);
+                params.add(DscModuleParam.parse(trimmed));
             }
         }
         return params;

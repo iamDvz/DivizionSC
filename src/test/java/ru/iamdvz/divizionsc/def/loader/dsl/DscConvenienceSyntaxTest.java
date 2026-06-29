@@ -9,6 +9,7 @@ import ru.iamdvz.divizionsc.def.model.EffectDefinition;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class DscConvenienceSyntaxTest {
@@ -96,6 +97,88 @@ class DscConvenienceSyntaxTest {
 
         DscStatement.ModuleCall spark = (DscStatement.ModuleCall) cast.statements().get(1);
         assertEquals("spark", spark.moduleId());
+    }
+
+    @Test
+    void parsesAtRouteSyntax() {
+        DefDefinition def = compile("""
+                ability test {
+                  meta { target: entity cd: 0 key: cmd range: 24 }
+                  cast {
+                    damage(5) at target
+                    particle(flame, count=10) >> target
+                  }
+                }
+                """);
+
+        assertEquals("target", def.effects().get(0).text("target", null));
+        assertEquals("target", def.effects().get(1).text("at", null));
+    }
+
+    @Test
+    void glowDefaultsToTargetOnEntityAbility() {
+        DefDefinition def = compile("""
+                ability mark {
+                  meta { target: entity cd: 0 key: cmd range: 24 }
+                  cast {
+                    require has-target
+                    glow(120)
+                  }
+                }
+                """);
+
+        EffectDefinition glow = def.effects().get(1);
+        assertEquals("glow", glow.type());
+        assertEquals("target", glow.text("target", null));
+    }
+
+    @Test
+    void parsesBareChanceAndWhenBlocks() {
+        DscScript script = parser.parse("""
+                ability test {
+                  cast {
+                    chance 40% {
+                      damage(2)
+                    }
+                    when has-target {
+                      heal(1)
+                    }
+                  }
+                }
+                """, "test.dsc");
+
+        DscSection cast = script.blocks().getFirst().sections().get("cast");
+        assertInstanceOf(DscStatement.ChanceBlock.class, cast.statements().get(0));
+        assertEquals("40%", ((DscStatement.ChanceBlock) cast.statements().get(0)).chance());
+        assertInstanceOf(DscStatement.IfBlock.class, cast.statements().get(1));
+        assertEquals("has-target", ((DscStatement.IfBlock) cast.statements().get(1)).condition());
+    }
+
+    @Test
+    void moduleTargetPropertyAppliesToInnerEffects() {
+        List<DefDefinition> all = new DscCompiler(new PluginConfig(new Settings()))
+                .compile(parser.parse("""
+                        module pain(dmg) {
+                          target: entity
+                          effects {
+                            damage($dmg)
+                          }
+                        }
+                        ability test {
+                          meta { target: self cd: 0 key: cmd }
+                          cast {
+                            @pain(5)
+                          }
+                        }
+                        """, "test.dsc"));
+        EffectDefinition damage = all.stream()
+                .filter(def -> "test".equals(def.id()))
+                .findFirst()
+                .orElseThrow()
+                .effects()
+                .getFirst();
+        assertEquals("damage", damage.type());
+        assertEquals("target", damage.text("target", null));
     }
 
     private DefDefinition compile(String source) {

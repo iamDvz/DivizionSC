@@ -55,7 +55,7 @@ class DscParserTest {
         assertEquals(DscBlockKind.MODULE, block.kind());
         assertEquals("pain", block.id());
         assertEquals(1, block.params().size());
-        assertEquals("dmg", block.params().getFirst());
+        assertEquals("dmg", block.params().getFirst().name());
         assertEquals("entity", block.properties().get("target"));
     }
 

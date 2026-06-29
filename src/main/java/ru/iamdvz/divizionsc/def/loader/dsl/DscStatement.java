@@ -10,7 +10,8 @@ public sealed interface DscStatement permits
         DscStatement.FxBlock,
         DscStatement.ProjBlock,
         DscStatement.IfBlock,
-        DscStatement.ChanceBlock {
+        DscStatement.ChanceBlock,
+        DscStatement.StackBlock {
 
     record EffectCall(DscCallParser.ParsedCall call, DscTargetDirective.Route route) implements DscStatement {
         public EffectCall(DscCallParser.ParsedCall call) {
@@ -111,6 +112,13 @@ public sealed interface DscStatement permits
     record ChanceBlock(String chance, DscSection body, DscTargetDirective.Route route) implements DscStatement {
         public ChanceBlock(String chance, DscSection body) {
             this(chance, body, DscTargetDirective.Route.NONE);
+        }
+    }
+
+    /** {@code stack >> target { @a @b }} — общий маршрут для вложенных вызовов. */
+    record StackBlock(DscSection body, DscTargetDirective.Route route) implements DscStatement {
+        public StackBlock(DscSection body) {
+            this(body, DscTargetDirective.Route.NONE);
         }
     }
 }

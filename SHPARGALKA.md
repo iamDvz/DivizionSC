@@ -2,6 +2,8 @@
 
 Paper **1.21+** / Folia · Java 21 · способности на языке **`.dsc`**
 
+> **Канон синтаксиса v2:** [SYNTAX.md](SYNTAX.md) · **Шпаргалка:** [SHPARGALKA.md](SHPARGALKA.md)
+
 ```
 написать defs/defs-*.dsc  →  /dsc validate  →  /dsc reload  →  выдать perm / give item
 ```
@@ -15,10 +17,13 @@ plugins/DivizionSC/
 ├── config.yml
 ├── lang/ru.yml, en.yml
 ├── defs/defs-*.dsc      ← только .dsc загружаются
+│   ├── defs-bricks.dsc  ← библиотека module-кирпичей
+│   ├── defs-examples.dsc
+│   └── defs-mine.dsc    ← ваши способности
 └── data.db              ← кулдауны и привязки хотбара (БД)
 ```
 
-Дубли **id** — побеждает последний загруженный файл. Addon-паки: `defs/defs-*.dsc` в JAR других плагинов.
+Дубли **id** — побеждает последний загруженный файл. **Module** из любого `defs-*.dsc` — в общем индексе, видны везде. Addon-паки: `defs/defs-*.dsc` в JAR других плагинов.
 
 ---
 
@@ -83,7 +88,7 @@ ability heal {
   cast {
     heal(6) >> self
     sound(entity_player_levelup) >> self
-    @hearts_vfx >> self
+    @fx_hearts >> self
   }
 }
 ```
@@ -141,6 +146,7 @@ Chain-секции (`start` / `done`) принимают только **`@module
 |--------|--------|
 | `effect(...)` | **Авто-цель** по типу эффекта и `meta.target` |
 | `effect(...) >> target` | Явная цель; начало по умолчанию `self` |
+| `effect(...) at target` | То же, читаемый алиас |
 | `effect(...) -> target` | То же, короткая запись |
 | `effect(...) >> self >> target` | Явно: от кастера к цели |
 
@@ -180,13 +186,29 @@ when (distance < 8) { }  // if (...)
 ```dsc
 @pain(dmg=5) >> target
 @pain 5 -> target
-@hearts_vfx
+@fx_hearts
 @pain(5) >> target          // один аргумент → dmg/amount
+@pain(3), @fx_spark >> target   // цепочка @ на одной строке
+@strike(5) with slow_pack >> target   // with — доп. кирпич
 ```
 
-`module pain(dmg) { … }` — параметр `$dmg` в теле модуля.
+`module pain(dmg) { … }` — параметр `$dmg` в теле. `module pain(dmg=3)` — `@pain` без скобок.
 
 `use()` / `call()` **не поддерживаются** — только `@`.
+
+### Композиция (LEGO)
+
+| Синтаксис | Пример |
+|-----------|--------|
+| **stack** | `stack >> target { @strike(4) @slow_pack }` |
+| **with** | `@strike(5) with slow_pack >> target` |
+| **цепочка `@`** | `@pain(3), @fx_spark >> target` |
+| **extends** | `module heavy(dmg) extends strike { … }` |
+| **дефолты** | `module pain(dmg=3) { }` → `@pain` |
+
+Алиасы `stack`: `compose`, `pipe`, `batch`.
+
+Кирпичи — **`defs-bricks.dsc`**. Способности собираются в **`defs-examples.dsc`**.
 
 ---
 
@@ -204,7 +226,7 @@ when (distance < 8) { }  // if (...)
 | `projectile` | `projectile(FIREBALL, speed=1.4) >> target` |
 | `after` | `after(10t) >> self { … }` |
 | `if` | `if (distance < 8) >> target { … } else { … }` |
-| `chance` | `chance(35%) >> target { … }` |
+| `chance` | `chance(35%) { … }` или `chance 35% { … }` |
 | `require` | `require(has-target) >> self` |
 | `set` | `set(power, 5) >> self` |
 | `area` | `area(radius=5) >> self { … }` |
@@ -507,18 +529,14 @@ DivizionSCApi.reloadDefs();
 
 ---
 
-## Примеры в `defs-examples.dsc`
+## Примеры
 
-**Активные:** `heal`, `fireball`, `blink`, `smite`, `boss_slam`, `arcane_combo`, `instant_*`  
-**Пассивки:** `passive_thorns`, `passive_parry`, `passive_dash_combo`  
-**VFX:** `meg_flamethrower` · **FX:** см. также `defs-fx-examples.dsc`
-
-## Продвинутые примеры в `defs-advanced.dsc`
-
-**Комбо:** `arcane_meteor`, `shadow_blink_assault`, `arcane_prism`, `blood_pact`  
-**Босс:** `boss_enrage`, `boss_volley`, `boss_slam_channel`, `gravity_well`, `void_rift`  
-**Зоны:** `holy_aura`, `meteor_shower`, `arcane_snipe`  
-**Пассивки:** `passive_lifesteal`, `passive_counter_stance` · **MEG:** `meg_flamethrower`
+| Файл | Содержимое |
+|------|------------|
+| **`defs-bricks.dsc`** | Кирпичи: `fx_spark`, `strike`, `smite`, `heavy_strike` (extends), … |
+| **`defs-examples.dsc`** | `heal`, `fireball`, `smite_basic`, `tri_combo`, `heavy_sword`, `passive_thorns`, … |
+| **`defs-advanced.dsc`** | `arcane_meteor`, `boss_enrage`, `chain_lightning`, `passive_lifesteal`, … |
+| **`defs-fx-examples.dsc`** | EffectLib / ModelEngine VFX |
 
 ```
 /dsc reload

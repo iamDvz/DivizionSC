@@ -171,7 +171,7 @@ public final class DscCompiler {
             ));
             case DscStatement.ModuleCall call -> applyRouteList(
                     expandModule(call, scope, inheritedRoute),
-                    resolveRoute(call.route(), inheritedRoute, call.moduleId())
+                    resolveModuleCallRoute(call, inheritedRoute)
             );
             case DscStatement.WaitBlock wait -> List.of(compileWait(wait, scope, inheritedRoute));
             case DscStatement.EffectBlock block -> List.of(compileEffectBlock(block, scope, inheritedRoute));
@@ -180,6 +180,11 @@ public final class DscCompiler {
             case DscStatement.ProjBlock proj -> List.of(compileProjectile(proj, scope, inheritedRoute));
             case DscStatement.IfBlock conditional -> List.of(compileIf(conditional, scope, inheritedRoute));
             case DscStatement.ChanceBlock chance -> List.of(compileChance(chance, scope, inheritedRoute));
+            case DscStatement.StackBlock stack -> compileSection(
+                    stack.body(),
+                    scope,
+                    resolveRoute(stack.route(), inheritedRoute, "stack")
+            );
         };
     }
 
@@ -193,6 +198,24 @@ public final class DscCompiler {
             return merged;
         }
         return DscRouteDefaults.forEffect(effectName, defaultTarget).mergeInherited(merged);
+    }
+
+    private DscTargetDirective.Route resolveModuleCallRoute(
+            DscStatement.ModuleCall call,
+            DscTargetDirective.Route inherited
+    ) {
+        DscTargetDirective.Route own = call.route() != null ? call.route() : DscTargetDirective.Route.NONE;
+        if (!own.isEmpty()) {
+            return resolveRoute(own, inherited, call.moduleId());
+        }
+        DscBlock module = modules.get(call.moduleId());
+        if (module != null) {
+            String moduleTarget = first(module.properties(), null, "tgt", "to", "target");
+            if (moduleTarget != null && !moduleTarget.isBlank()) {
+                return routeFromTargetMode(TargetMode.parse(moduleTarget)).mergeInherited(inherited);
+            }
+        }
+        return resolveRoute(own, inherited, call.moduleId());
     }
 
     private String guessEffectName(String line) {
@@ -432,28 +455,71 @@ public final class DscCompiler {
     ) {
         DscBlock module = requireModule(call.moduleId());
         Map<String, String> scope = mergeScope(outerScope, module.params(), call.positional(), call.named());
-        DscSection body = firstSection(module.sections(), "effects", "cast", "do");
-        if (body == null) {
-            return List.of(new EffectDefinition("def", Map.of("def", module.id()), List.of()));
+        TargetMode savedTarget = defaultTarget;
+        String moduleTarget = first(module.properties(), null, "tgt", "to", "target");
+        if (moduleTarget != null && !moduleTarget.isBlank()) {
+            defaultTarget = TargetMode.parse(moduleTarget);
         }
-        DscTargetDirective.Route route = resolveRoute(call.route(), inheritedRoute, call.moduleId());
-        return compileSection(body, scope, route);
+        try {
+            DscTargetDirective.Route route = resolveRoute(call.route(), inheritedRoute, call.moduleId());
+            DscTargetDirective.Route innerInherited = inheritedRoute;
+            if ((call.route() == null || call.route().isEmpty()) && moduleTarget != null && !moduleTarget.isBlank()) {
+                innerInherited = routeFromTargetMode(defaultTarget);
+            }
+            DscTargetDirective.Route effectiveInherited = innerInherited.isEmpty() ? route : innerInherited;
+            return compileModuleBody(module, scope, effectiveInherited, new java.util.HashSet<>());
+        } finally {
+            defaultTarget = savedTarget;
+        }
+    }
+
+    private List<EffectDefinition> compileModuleBody(
+            DscBlock module,
+            Map<String, String> scope,
+            DscTargetDirective.Route inheritedRoute,
+            java.util.Set<String> visited
+    ) {
+        if (!visited.add(module.id())) {
+            throw new DscParseException("Circular module extends: " + module.id());
+        }
+        List<EffectDefinition> result = new ArrayList<>();
+        String parentId = first(module.properties(), null, "extends", "extend");
+        if (parentId != null && !parentId.isBlank()) {
+            result.addAll(compileModuleBody(requireModule(parentId), scope, inheritedRoute, visited));
+        }
+        DscSection body = firstSection(module.sections(), "effects", "cast", "do");
+        if (body != null) {
+            result.addAll(compileSection(body, scope, inheritedRoute));
+        }
+        return result;
+    }
+
+    private DscTargetDirective.Route routeFromTargetMode(TargetMode mode) {
+        return switch (mode) {
+            case ENTITY -> new DscTargetDirective.Route(null, "target");
+            case SELF -> new DscTargetDirective.Route(null, "self");
+            case BLOCK -> new DscTargetDirective.Route(null, "location");
+            case NONE -> DscTargetDirective.Route.NONE;
+        };
     }
 
     private Map<String, String> mergeScope(
             Map<String, String> outer,
-            List<String> paramNames,
+            List<DscModuleParam> paramDefs,
             List<String> positional,
             Map<String, String> named
     ) {
         Map<String, String> scope = new HashMap<>(outer);
-        for (int i = 0; i < paramNames.size(); i++) {
-            String param = paramNames.get(i);
-            String namedValue = named.get(param.toLowerCase(Locale.ROOT));
+        for (int i = 0; i < paramDefs.size(); i++) {
+            DscModuleParam param = paramDefs.get(i);
+            String paramName = param.name();
+            String namedValue = named.get(paramName);
             if (namedValue != null) {
-                scope.put(param, namedValue);
+                scope.put(paramName, namedValue);
             } else if (i < positional.size()) {
-                scope.put(param, positional.get(i));
+                scope.put(paramName, positional.get(i));
+            } else if (param.hasDefault()) {
+                scope.put(paramName, param.defaultValue());
             }
         }
         for (Map.Entry<String, String> entry : named.entrySet()) {
@@ -463,20 +529,24 @@ public final class DscCompiler {
     }
 
     private Map<String, Object> buildArgs(
-            List<String> paramNames,
+            List<DscModuleParam> paramDefs,
             List<String> positional,
             Map<String, String> named
     ) {
         Map<String, Object> args = new HashMap<>();
-        for (int i = 0; i < paramNames.size(); i++) {
-            String param = paramNames.get(i);
-            String raw = named.get(param.toLowerCase(Locale.ROOT));
+        for (int i = 0; i < paramDefs.size(); i++) {
+            DscModuleParam param = paramDefs.get(i);
+            String paramName = param.name();
+            String raw = named.get(paramName);
             if (raw == null && i < positional.size()) {
                 raw = positional.get(i);
             }
+            if (raw == null && param.hasDefault()) {
+                raw = param.defaultValue();
+            }
             if (raw != null) {
-                args.put(param, parseArgValue(raw));
-                mapCommonArgAlias(args, param, raw);
+                args.put(paramName, parseArgValue(raw));
+                mapCommonArgAlias(args, paramName, raw);
             }
         }
         for (Map.Entry<String, String> entry : named.entrySet()) {
@@ -560,8 +630,8 @@ public final class DscCompiler {
             return Map.of();
         }
         Map<String, String> scope = new HashMap<>();
-        for (String param : block.params()) {
-            scope.put(param, "0");
+        for (DscModuleParam param : block.params()) {
+            scope.put(param.name(), param.hasDefault() ? param.defaultValue() : "0");
         }
         return scope;
     }

@@ -56,7 +56,7 @@ public final class DscRouteDefaults {
             return fromMeta(metaTarget, "self");
         }
         if ("potion".equals(effect) || "pot".equals(effect)) {
-            return "self";
+            return fromMeta(metaTarget, "self");
         }
         if ("projectile".equals(effect) || "proj".equals(effect)) {
             return metaTarget == TargetMode.BLOCK ? "location" : "target";
@@ -64,9 +64,13 @@ public final class DscRouteDefaults {
         if ("explosion".equals(effect) || "explode".equals(effect)) {
             return "location";
         }
-        if ("title".equals(effect) || "glow".equals(effect) || "glowing".equals(effect)
-                || "invis".equals(effect) || "invisibility".equals(effect)) {
+        if ("title".equals(effect)) {
             return "self";
+        }
+        if ("glow".equals(effect) || "glowing".equals(effect)
+                || "invis".equals(effect) || "invisibility".equals(effect)
+                || "cleanse".equals(effect) || "purge".equals(effect)) {
+            return fromMeta(metaTarget, "self");
         }
         if ("area".equals(effect) || "aura".equals(effect) || "loop".equals(effect) || "repeat".equals(effect)) {
             return fromMeta(metaTarget, "self");

@@ -1,25 +1,9 @@
 // =====================================================================
-//  DivizionSC — defs-advanced.dsc
-//  Сложные способности: задержки, зоны, циклы, условия, переменные,
-//  многофазные боссы и пассивки. Все примеры компилируются «как есть».
-// =====================================================================
-//
-//  Дополнительно к базе (см. defs-examples.dsc):
-//    after(30t) { }          — отложенный блок (t = тики, s = секунды)
-//    area(R) { }             — применить вложенное к каждой цели в радиусе R
-//    loop(times=N, interval=T) { }  — повторить N раз с паузой T тиков
-//    aura(radius=R, duration=D, interval=T) { }  — периодическая аура
-//    if (cond) { } else { }  — ветвление (when — псевдоним if)
-//    chance (30%) { }        — вероятностный блок
-//    set(name, выражение)    — переменная каста; формулы exp4j (health, level…)
-//    require <условие>       — прерывает каст, если ложно
-//  Условия: has-target · health < 40% · distance < 6 · sneaking · on-ground …
+//  defs-advanced.dsc — сложные способности
+//  after · area · loop · aura · if/when · chance · set · chain · projectile
+//  Канон: SYNTAX.md · база: defs-examples.dsc
 // =====================================================================
 
-
-// ---------------------------------------------------------------------
-//  МОДУЛИ
-// ---------------------------------------------------------------------
 
 module meteor_trail {
   effects {
@@ -42,14 +26,13 @@ module shock(dmg) {
   effects {
     damage($dmg) >> target
     particle(electric_spark, count=20) >> target
-    sound(lightning_bolt_impact, volume=0.7)
+    sound(entity_lightning_bolt_impact, volume=0.7) >> target
   }
 }
 
 
-// ---------------------------------------------------------------------
-//  1. Метеор: каст → след → через 1.5с урон по зоне в точке падения
-// ---------------------------------------------------------------------
+// --- Задержка + зона ---------------------------------------------------
+
 ability arcane_meteor {
   name: "&5Метеор"
   cooldown: 14
@@ -57,26 +40,25 @@ ability arcane_meteor {
   target: none
   range: 40
   mana: 25
-  item: FIRE_CHARGE | &5Метеор | &7Призывает метеор в точку взгляда
+  item: FIRE_CHARGE | &5Метеор
 
   cast {
-    sound(blaze_shoot, volume=1.2, pitch=0.6)
-    @meteor_trail >> target
+    sound(entity_blaze_shoot, volume=1.2, pitch=0.6) >> self
+    @meteor_trail >> location
     after(30t) {
       area(4) {
         damage(10) >> target
         @burn(3) >> target
       }
       particle(explosion, count=6) >> location
-      sound(generic_explode, volume=1.5)
+      sound(entity_generic_explode, volume=1.5) >> location
     }
   }
 }
 
 
-// ---------------------------------------------------------------------
-//  2. Ярость босса: бафы только при низком здоровье (if/else)
-// ---------------------------------------------------------------------
+// --- Условия -----------------------------------------------------------
+
 ability boss_enrage {
   name: "&4Ярость"
   cooldown: 30
@@ -85,22 +67,42 @@ ability boss_enrage {
 
   cast {
     if (health < 40%) {
-      potion(strength, duration=15s, amplifier=2)
-      potion(speed, duration=15s, amplifier=1)
-      potion(resistance, duration=15s, amplifier=1)
-      message("&4Босс приходит в ярость!")
+      potion(strength, duration=15s, amplifier=2) >> self
+      potion(speed, duration=15s, amplifier=1) >> self
+      potion(resistance, duration=15s, amplifier=1) >> self
+      message("&4Босс приходит в ярость!") >> self
     } else {
-      message("&7Слишком много здоровья для ярости")
+      message("&7Слишком много здоровья") >> self
     }
-    particle(angry_villager, count=30) >> self
-    sound(wither_spawn, volume=1.0)
+    particle(villager_angry, count=30) >> self
+    sound(entity_wither_spawn, volume=1.0) >> self
+  }
+}
+
+ability holy_smite {
+  name: "&eСвятой удар"
+  cooldown: 10
+  key: rclick
+  target: entity
+  range: 20
+  mana: 12
+  item: GOLDEN_SWORD | &eСвятой удар
+
+  cast {
+    require(has-target)
+    if (distance < 6) {
+      damage(12) >> target
+      message("&eБлизкий удар!") >> self
+    } else {
+      damage(6) >> target
+      lightning(fx=true) >> target
+    }
   }
 }
 
 
-// ---------------------------------------------------------------------
-//  3. Цепная молния: raycast сквозь врагов
-// ---------------------------------------------------------------------
+// --- chain · loop · aura -----------------------------------------------
+
 ability chain_lightning {
   name: "&bЦепная молния"
   cooldown: 9
@@ -113,16 +115,12 @@ ability chain_lightning {
   cast {
     chain(18, hits=3, hit_radius=1.5) {
       @shock(4) >> target
-      lightning >> target
+      lightning() >> target
     }
-    sound(lightning_bolt_impact, volume=0.8)
+    sound(entity_lightning_bolt_impact, volume=0.8) >> self
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  4. Метеоритный дождь: цикл из 5 ударов по зоне
-// ---------------------------------------------------------------------
 ability meteor_storm {
   name: "&cМетеоритный дождь"
   cooldown: 40
@@ -132,21 +130,17 @@ ability meteor_storm {
   mana: 50
 
   cast {
-    message("&cНебеса разверзлись!")
+    message("&cНебеса разверзлись!") >> self
     loop(times=5, interval=10) {
       area(5) {
         damage(6) >> target
         particle(flame, count=20) >> target
       }
-      sound(generic_explode, volume=1.0, pitch=0.8)
+      sound(entity_generic_explode, volume=1.0, pitch=0.8) >> self
     }
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  5. Аура вампира: периодически бьёт врагов и лечит себя
-// ---------------------------------------------------------------------
 ability vampire_aura {
   name: "&4Аура вампира"
   cooldown: 25
@@ -161,14 +155,13 @@ ability vampire_aura {
       heal(1) >> self
       particle(damage_indicator, count=3) >> target
     }
-    sound(wither_ambient, volume=0.8)
+    sound(entity_wither_ambient, volume=0.8) >> self
   }
 }
 
 
-// ---------------------------------------------------------------------
-//  6. Землетрясение: зона урона + оглушение + подброс
-// ---------------------------------------------------------------------
+// --- Зона · переменные · комбо -----------------------------------------
+
 ability earthquake {
   name: "&6Землетрясение"
   cooldown: 18
@@ -183,16 +176,12 @@ ability earthquake {
       damage(8) >> target
       stun(40) >> target
     }
-    velocity(0, 0.5, 0)
+    velocity(0, 0.5, 0) >> self
     particle(campfire_cosy_smoke, count=60) >> self
-    sound(generic_explode, volume=1.4, pitch=0.5)
+    sound(entity_generic_explode, volume=1.4, pitch=0.5) >> self
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  7. Телепорт-комбо: рывок к цели, удар, отскок назад
-// ---------------------------------------------------------------------
 ability teleport_combo {
   name: "&dТелепорт-комбо"
   cooldown: 12
@@ -203,20 +192,15 @@ ability teleport_combo {
   item: CHORUS_FRUIT | &dТелепорт-комбо
 
   cast {
-    require has-target
-    blink(10)
+    require(has-target)
+    blink(10) >> self
     @shock(5) >> target
     after(5t) {
-      blink(6)
+      blink(6) >> self
     }
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  8. Переменные и формулы: урон = base*2 + уровень игрока
-//     set вычисляет выражение (exp4j), {var_...} — в сообщениях
-// ---------------------------------------------------------------------
 ability power_strike {
   name: "&cСиловой удар"
   cooldown: 8
@@ -226,19 +210,15 @@ ability power_strike {
   item: IRON_AXE | &cСиловой удар
 
   cast {
-    require has-target
-    set(base, 4)
-    set(total, base * 2 + level)
+    require(has-target)
+    set(base, 4) >> self
+    set(total, base * 2 + level) >> self
     damage(total) >> target
-    message("&cУрон: &e{var_total}")
+    message("&cУрон: &e{var_total}") >> self
     particle(crit, count=20) >> target
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  9. Гравитационный колодец: притягивает врагов в радиусе
-// ---------------------------------------------------------------------
 ability gravity_well {
   name: "&8Гравитация"
   cooldown: 15
@@ -253,39 +233,10 @@ ability gravity_well {
       pull(1.2) >> target
       particle(portal, count=10) >> target
     }
-    sound(warden_sonic_boom, volume=0.6)
+    sound(entity_warden_sonic_boom, volume=0.6) >> self
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  10. Святой удар: ближе цель — больше урон (условие по дистанции)
-// ---------------------------------------------------------------------
-ability holy_smite {
-  name: "&eСвятой удар"
-  cooldown: 10
-  key: rclick
-  target: entity
-  range: 20
-  mana: 12
-  item: GOLDEN_SWORD | &eСвятой удар
-
-  cast {
-    require has-target
-    if (distance < 6) {
-      damage(12) >> target
-      message("&eБлизкий удар!")
-    } else {
-      damage(6) >> target
-      lightning(fx=true) >> target
-    }
-  }
-}
-
-
-// ---------------------------------------------------------------------
-//  11. Залп босса: цикл из снарядов с эффектом при попадании
-// ---------------------------------------------------------------------
 ability boss_volley {
   name: "&5Залп"
   cooldown: 20
@@ -296,54 +247,14 @@ ability boss_volley {
     loop(times=3, interval=8) {
       projectile(FIREBALL, speed=1.2) {
         hit {
-          @burn(4)
+          @burn(4) >> target
         }
       }
-      sound(blaze_shoot, volume=0.8)
+      sound(entity_blaze_shoot, volume=0.8) >> self
     }
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  12. ПАССИВКА: вампиризм — лечит при атаке (on: attack)
-// ---------------------------------------------------------------------
-passive passive_lifesteal {
-  name: "&4Вампиризм"
-  on: attack
-  cooldown: 1
-  target: entity
-  perm: divizionsc.def.passive_lifesteal
-
-  cast {
-    heal(2)
-    particle(heart, count=4) >> self
-  }
-}
-
-
-// ---------------------------------------------------------------------
-//  13. ПАССИВКА: берсерк — при получении урона на низком HP даёт силу
-// ---------------------------------------------------------------------
-passive passive_berserk {
-  name: "&cБерсерк"
-  on: damage
-  cooldown: 5
-  target: self
-  perm: divizionsc.def.passive_berserk
-
-  cast {
-    if (health < 30%) {
-      potion(strength, duration=6s, amplifier=1)
-      particle(angry_villager, count=10) >> self
-    }
-  }
-}
-
-
-// ---------------------------------------------------------------------
-//  14. Солнечная вспышка: взрыв + поджог в зоне
-// ---------------------------------------------------------------------
 ability solar_flare {
   name: "&6Солнечная вспышка"
   cooldown: 16
@@ -356,18 +267,14 @@ ability solar_flare {
   cast {
     explosion(0, fire=true) >> location
     area(5) {
-      ignite(100) >> target
+      ignite(ticks=100) >> target
       damage(5) >> target
     }
     particle(flame, count=40) >> location
-    sound(generic_explode, volume=0.8, pitch=1.2)
+    sound(entity_generic_explode, volume=0.8, pitch=1.2) >> location
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  15. Теневой обмен: swap + удар + root
-// ---------------------------------------------------------------------
 ability shadow_swap {
   name: "&5Теневой обмен"
   cooldown: 14
@@ -378,19 +285,15 @@ ability shadow_swap {
   item: ENDER_EYE | &5Теневой обмен
 
   cast {
-    require has-target
-    swap >> target
+    require(has-target)
+    swap() >> target
     @shock(6) >> target
     root(50) >> target
     particle(portal, count=30) >> self
-    sound(enderman_teleport)
+    sound(entity_enderman_teleport) >> self
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  16. Метка охотника: glow + title на цель
-// ---------------------------------------------------------------------
 ability hunters_mark {
   name: "&eМетка охотника"
   cooldown: 8
@@ -400,17 +303,13 @@ ability hunters_mark {
   item: SPYGLASS | &eМетка
 
   cast {
-    require has-target
-    glow(160) >> target
+    require(has-target)
+    glow(duration=160) >> target
     title(title="&e☠ МЕТКА", subtitle="&7Цель отмечена") >> target
     particle(glow, count=12) >> target
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  17. Очищение: снять дебаффы + лечение в зоне
-// ---------------------------------------------------------------------
 ability cleansing_wave {
   name: "&aОчищающая волна"
   cooldown: 22
@@ -420,21 +319,17 @@ ability cleansing_wave {
   item: TOTEM_OF_UNDYING | &aОчищение
 
   cast {
-    cleanse >> self
-    heal(4)
+    cleanse() >> self
+    heal(4) >> self
     area(6) {
-      cleanse >> target
+      cleanse() >> target
       heal(2) >> target
       particle(happy_villager, count=6) >> target
     }
-    sound(beacon_activate, volume=0.7)
+    sound(block_beacon_activate, volume=0.7) >> self
   }
 }
 
-
-// ---------------------------------------------------------------------
-//  18. Небесный рывок: launch + dash
-// ---------------------------------------------------------------------
 ability sky_launch {
   name: "&bНебесный рывок"
   cooldown: 10
@@ -443,19 +338,46 @@ ability sky_launch {
   item: ELYTRA | &bНебесный рывок
 
   cast {
-    launch(1.1)
+    launch(1.1) >> self
     after(3t) {
-      dash(0.8)
+      dash(0.8) >> self
     }
     particle(cloud, count=20) >> self
-    sound(enderdragon_flap, volume=0.4)
+    sound(entity_ender_dragon_flap, volume=0.4) >> self
   }
 }
 
 
-// ---------------------------------------------------------------------
-//  19. ПАССИВКА: страж — щит при низком HP
-// ---------------------------------------------------------------------
+// --- Пассивки ----------------------------------------------------------
+
+passive passive_lifesteal {
+  name: "&4Вампиризм"
+  on: attack
+  cooldown: 1
+  target: entity
+  perm: divizionsc.def.passive_lifesteal
+
+  cast {
+    heal(2) >> self
+    particle(heart, count=4) >> self
+  }
+}
+
+passive passive_berserk {
+  name: "&cБерсерк"
+  on: damage
+  cooldown: 5
+  target: self
+  perm: divizionsc.def.passive_berserk
+
+  cast {
+    if (health < 30%) {
+      potion(strength, duration=6s, amplifier=1) >> self
+      particle(villager_angry, count=10) >> self
+    }
+  }
+}
+
 passive passive_guardian {
   name: "&9Страж"
   on: damage
@@ -465,8 +387,8 @@ passive passive_guardian {
 
   cast {
     if (health < 25%) {
-      shield(6)
-      cleanse >> self
+      shield(6) >> self
+      cleanse() >> self
       title(actionbar="&9Щит стража!") >> self
       particle(totem_of_undying, count=8) >> self
     }
